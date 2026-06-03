@@ -2,7 +2,7 @@
 
 Local-first **remote PC Agent**: control a LangGraph agent on your machine from a phone or web chat shell, with HITL approval and sandboxed tools.
 
-**License:** [Apache-2.0](LICENSE)
+**License:** [Apache-2.0](LICENSE) · **Repository:** https://github.com/AUrlius/lingji-zero
 
 ## Architecture
 
