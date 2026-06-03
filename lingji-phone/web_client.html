@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>灵机助手</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, sans-serif; background: #0d0f13; color: #e0e0e0; height: 100vh; display: flex; flex-direction: column; }
+.header { background: #1a1d23; padding: 14px 16px; text-align: center; border-bottom: 1px solid #2a2d33; }
+.header h1 { font-size: 18px; color: #7c8aff; }
+.status { font-size: 11px; color: #4caf50; margin-top: 4px; }
+.status.off { color: #f44336; }
+.chat { flex: 1; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 8px; }
+.msg { max-width: 85%; padding: 10px 14px; border-radius: 14px; font-size: 15px; line-height: 1.5; word-break: break-word; }
+.msg.agent { background: #1a1d23; align-self: flex-start; border: 1px solid #2a2d33; }
+.msg.user { background: #7c8aff; color: #fff; align-self: flex-end; }
+.msg.system { align-self: center; font-size: 12px; color: #666; padding: 4px 10px; }
+.toolbar { background: #1a1d23; padding: 10px 12px; display: flex; gap: 8px; border-top: 1px solid #2a2d33; }
+.toolbar input { flex: 1; background: #0d0f13; border: 1px solid #2a2d33; border-radius: 20px; padding: 10px 16px; color: #e0e0e0; font-size: 15px; outline: none; }
+.toolbar input:focus { border-color: #7c8aff; }
+.toolbar button { background: #7c8aff; color: #fff; border: none; border-radius: 20px; padding: 10px 20px; font-size: 15px; cursor: pointer; }
+.settings { background: #1a1d23; padding: 8px 12px; display: none; font-size: 13px; }
+.settings input { background: #0d0f13; border: 1px solid #2a2d33; color: #e0e0e0; padding: 6px 10px; border-radius: 8px; width: 200px; font-size: 13px; }
+.settings label { margin-right: 8px; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>灵机助手 🤖</h1>
+  <div class="status off" id="status">未连接</div>
+</div>
+
+<div class="settings" id="settings">
+  <label>Gateway:</label>
+  <input id="gwHost" value="116.62.14.114" size="14">
+  <input id="gwPort" value="8765" size="5">
+  <button onclick="connect()">连接</button>
+</div>
+
+<div class="chat" id="chat"></div>
+
+<div class="toolbar">
+  <input id="input" placeholder="输入消息..." autocomplete="off" onkeydown="if(event.key==='Enter')send()">
+  <button onclick="send()">发送</button>
+</div>
+
+<script>
+const DEVICE_ID = 'phone-' + Math.random().toString(36).slice(2, 8);
+let ws = null;
+let msgId = 0;
+
+function log(cls, text) {
+  const d = document.getElementById('chat');
+  const m = document.createElement('div');
+  m.className = 'msg ' + cls;
+  m.textContent = text;
+  d.appendChild(m);
+  d.scrollTop = d.scrollHeight;
+}
+
+function setStatus(text, on) {
+  const s = document.getElementById('status');
+  s.textContent = text;
+  s.className = on ? 'status' : 'status off';
+}
+
+async function connect() {
+  const host = document.getElementById('gwHost').value || '127.0.0.1';
+  const port = document.getElementById('gwPort').value || '8765';
+  const url = `ws://${host}:${port}/ws`;
+
+  setStatus('连接中...', false);
+  try {
+    ws = new WebSocket(url);
+    ws.onopen = () => {
+      setStatus('已连接 (' + DEVICE_ID + ')', true);
+      ws.send(JSON.stringify({
+        msg_id: 'auth-' + (++msgId), msg_type: 'AUTH_REQ',
+        device_id: DEVICE_ID, timestamp: Date.now()/1000,
+        payload: { device_id: DEVICE_ID }
+      }));
+    };
+    ws.onmessage = (e) => {
+      try {
+        const msg = JSON.parse(e.data);
+        if (msg.msg_type === 'AGENT_RES') {
+          const p = msg.payload || {};
+          if (p.status === 'connected') {
+            log('system', '✅ 认证成功');
+          } else if (p.status === 'queued') {
+            log('agent', '📦 ' + p.text);
+          } else if (p.text) {
+            log('agent', p.text);
+          }
+        } else if (msg.msg_type === 'HITL_REQ') {
+          log('system', '⚠️ 危险操作需审批: ' + JSON.stringify(msg.payload));
+        }
+      } catch (err) {}
+    };
+    ws.onclose = () => setStatus('已断开', false);
+    ws.onerror = () => setStatus('连接失败', false);
+  } catch (e) {
+    setStatus('连接失败: ' + e, false);
+  }
+}
+
+function send() {
+  const input = document.getElementById('input');
+  const text = input.value.trim();
+  if (!text || !ws || ws.readyState !== WebSocket.OPEN) return;
+  ws.send(JSON.stringify({
+    msg_id: 'msg-' + (++msgId), msg_type: 'CMD_TEXT',
+    device_id: DEVICE_ID, timestamp: Date.now()/1000,
+    payload: { text: text }
+  }));
+  log('user', text);
+  input.value = '';
+  input.focus();
+}
+
+// 自动连接
+document.getElementById('settings').style.display = 'block';
+connect();
+</script>
+</body>
+</html>

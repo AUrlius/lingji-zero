@@ -1,0 +1,64 @@
+{
+  "annotations": {"list": []},
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "datasource": {"type": "prometheus", "uid": "Prometheus"},
+      "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+      "id": 1,
+      "targets": [
+        {"expr": "lingji_cmd_total", "legendFormat": "cmd_total", "refId": "A"},
+        {"expr": "lingji_run_complete_total", "legendFormat": "run_complete", "refId": "B"}
+      ],
+      "title": "请求量",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "Prometheus"},
+      "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+      "id": 2,
+      "targets": [
+        {"expr": "sum by (rule_id) (lingji_guardrail_blocked_total)", "legendFormat": "{{rule_id}}", "refId": "A"}
+      ],
+      "title": "Guardrail 拦截",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "Prometheus"},
+      "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+      "id": 3,
+      "targets": [
+        {"expr": "lingji_hitl_interrupt_total", "legendFormat": "interrupt", "refId": "A"},
+        {"expr": "lingji_hitl_timeout_total", "legendFormat": "timeout", "refId": "B"}
+      ],
+      "title": "HITL",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "Prometheus"},
+      "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+      "id": 4,
+      "targets": [
+        {"expr": "histogram_quantile(0.5, sum(rate(lingji_run_duration_seconds_bucket[5m])) by (le))", "legendFormat": "p50", "refId": "A"},
+        {"expr": "histogram_quantile(0.99, sum(rate(lingji_run_duration_seconds_bucket[5m])) by (le))", "legendFormat": "p99", "refId": "B"}
+      ],
+      "title": "Run Duration",
+      "type": "timeseries"
+    }
+  ],
+  "schemaVersion": 39,
+  "tags": ["lingji", "observability"],
+  "templating": {"list": []},
+  "time": {"from": "now-6h", "to": "now"},
+  "title": "Lingji Overview",
+  "uid": "lingji-overview",
+  "version": 1
+}

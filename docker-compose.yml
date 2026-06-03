@@ -1,0 +1,116 @@
+# 灵机本地开发 / 交接一键栈（三期 3.3 + 四期 4.2 observability）
+# Gateway 默认 profile；Agent 需 --profile full
+# 可观测栈：--profile observability
+#
+#   docker compose up -d gateway
+#   docker compose --profile observability up -d
+#   ./scripts/compose-integration-smoke.sh
+#
+# 完整栈（需 DEEPSEEK_API_KEY）：
+#   docker compose --profile full up -d
+
+services:
+  gateway:
+    build:
+      context: ./lingji-gateway
+    ports:
+      - "${LINGJI_HOST_PORT:-18765}:8765"
+    environment:
+      LINGJI_PORT: "8765"
+      LINGJI_AUTH_TOKEN: ${LINGJI_AUTH_TOKEN:-}
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8765/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 6
+      start_period: 5s
+
+  gateway-node:
+    profiles: ["gateway-node"]
+    build:
+      context: ./lingji-gateway-node
+    ports:
+      - "${LINGJI_NODE_HOST_PORT:-18766}:8766"
+    environment:
+      LINGJI_PORT: "8766"
+      LINGJI_AUTH_TOKEN: ${LINGJI_AUTH_TOKEN:-}
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8766/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 6
+      start_period: 8s
+
+  agent:
+    profiles: ["full"]
+    build:
+      context: ./lingji-agent
+    depends_on:
+      gateway:
+        condition: service_healthy
+    environment:
+      LINGJI_GATEWAY_HOST: gateway
+      LINGJI_GATEWAY_PORT: "8765"
+      LINGJI_AUTH_TOKEN: ${LINGJI_AUTH_TOKEN:-}
+      LINGJI_DEVICE_ID: ${LINGJI_DEVICE_ID:-lingji-pc}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      LLM_MODEL: ${LLM_MODEL:-deepseek-chat}
+      LLM_BASE_URL: ${LLM_BASE_URL:-https://api.deepseek.com}
+      LINGJI_MEMORY_DB_PATH: /data/lingji/memory_db
+      SANDBOX_IMAGE: ${SANDBOX_IMAGE:-python:3.11-slim}
+    volumes:
+      - lingji-agent-data:/data/lingji
+      - /var/run/docker.sock:/var/run/docker.sock
+    restart: unless-stopped
+
+  tempo:
+    profiles: ["observability"]
+    image: grafana/tempo:2.3.1
+    command: ["-config.file=/etc/tempo.yaml"]
+    volumes:
+      - ./observability/tempo.yaml:/etc/tempo.yaml
+      - tempo-data:/var/tempo
+    ports:
+      - "${LINGJI_TEMPO_PORT:-3200}:3200"
+
+  otel-collector:
+    profiles: ["observability"]
+    image: otel/opentelemetry-collector-contrib:0.96.0
+    command: ["--config=/etc/otel-collector.yaml"]
+    volumes:
+      - ./observability/otel-collector.yaml:/etc/otel-collector.yaml
+    ports:
+      - "${LINGJI_OTLP_PORT:-4317}:4317"
+    depends_on:
+      - tempo
+
+  prometheus:
+    profiles: ["observability"]
+    image: prom/prometheus:v2.48.0
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml
+    ports:
+      - "${LINGJI_PROMETHEUS_PORT:-9090}:9090"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  grafana:
+    profiles: ["observability"]
+    image: grafana/grafana:10.2.3
+    ports:
+      - "${LINGJI_GRAFANA_PORT:-3000}:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning
+      - ./grafana/dashboards:/var/lib/grafana/dashboards
+    depends_on:
+      - prometheus
+      - tempo
+
+volumes:
+  lingji-agent-data:
+  tempo-data:

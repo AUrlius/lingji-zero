@@ -1,0 +1,48 @@
+llm:
+  api_key: ""
+  base_url: https://api.deepseek.com
+  model: deepseek-chat
+  provider: deepseek
+network:
+  auth_token: ""
+  device_id: lingji-pc
+  gateway_host: lingji.mygoal.tech
+  gateway_port: 443
+  incoming_dir: ~/Downloads/LingjiIncoming
+  max_reconnect_delay: 60.0
+  reconnect_delay: 1.0
+security:
+  hitl_enabled: true
+  hitl_timeout_sec: 300
+  sanitizer_force_docker: true
+  guardrails_enabled: true
+  guardrails_block: true
+  max_execution_time: 30
+  max_memory_mb: 256
+  sandbox_image: python:3.11-slim
+memory:
+  enabled: true
+  db_path: ~/.lingji/memory_db
+  episodic_top_k: 3
+  semantic_top_k: 2
+  tool_output_max_chars: 1000
+  decay_enabled: true
+  decay_lambda: 0.01
+  prune_min_weight: 0.05
+  prune_after_days: 30
+  summarize_enabled: true
+  summarize_min_episodes: 30
+  summarize_batch_size: 20
+  summarize_min_age_days: 7
+  summarize_interval_hours: 24
+  summarize_max_output_chars: 2000
+  summarize_cold_start_defer: true  # 无 .summarize_last_run 时先 seed，24h 后再首次总结
+observability:
+  enabled: true
+  otlp_endpoint: http://127.0.0.1:4317
+  otlp_insecure: true
+  service_name: lingji-agent
+  metrics_enabled: true
+  metrics_host: 127.0.0.1
+  metrics_port: 9091
+  trace_log_enabled: true

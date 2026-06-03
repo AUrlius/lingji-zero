@@ -1,0 +1,10 @@
+{
+  "msg_id": "interop-test-001",
+  "msg_type": "CMD_TEXT",
+  "device_id": "phone-001",
+  "timestamp": 1717000000.123,
+  "payload": {
+    "text": "hello from python",
+    "seq": 42
+  }
+}

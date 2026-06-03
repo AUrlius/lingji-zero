@@ -1,0 +1,19 @@
+{
+  "name": "lingji-gateway-node",
+  "version": "0.1.0-spike",
+  "private": true,
+  "type": "module",
+  "description": "Lingji Gateway Node.js spike — protocol parity with Go lingji-gateway",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node src/index.js",
+    "test": "node --test test/**/*.test.js"
+  },
+  "dependencies": {
+    "busboy": "^1.6.0",
+    "uuid": "^11.1.0",
+    "ws": "^8.18.2"
+  }
+}

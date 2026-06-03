@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<title>灵机助手</title>
+<link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+<div id="sidebarOverlay" class="sidebar-overlay" onclick="LingjiUI.closeSidebar()"></div>
+<div id="app">
+  <aside id="sidebar" class="sidebar">
+    <div class="sidebar-brand">灵机</div>
+    <button type="button" id="btnNewChat" class="sidebar-new">+ 新对话</button>
+    <div id="sessionList"></div>
+  </aside>
+  <div class="main-panel">
+    <div class="header">
+      <button type="button" class="menu-btn" onclick="LingjiUI.toggleSidebar()" aria-label="菜单">☰</button>
+      <div class="header-main">
+        <h1>灵机助手</h1>
+        <div class="status off" id="status">未连接</div>
+      </div>
+      <button type="button" id="btnTheme" class="theme-btn" aria-label="切换主题">🌙</button>
+    </div>
+
+    <div class="settings" id="settings">
+      <label>Gateway:</label>
+      <input id="gwHost" value="lingji.mygoal.tech" size="20">
+      <input id="gwPort" value="443" size="5">
+      <button type="button">连接</button>
+    </div>
+
+    <div class="chat-wrap">
+      <div class="chat" id="chat"></div>
+    </div>
+
+    <div class="composer-area">
+      <div class="pending-bar" id="pendingBar"></div>
+      <div class="toolbar" id="toolbar">
+        <label for="fileInput" class="toolbar-btn" title="上传文件">📎</label>
+        <input type="file" id="fileInput" class="file-input-visually-hidden" multiple
+          accept="image/*,video/*,.pdf,.zip,.doc,.docx,.txt">
+        <div class="composer-box">
+          <textarea id="input" rows="1" placeholder="输入消息…" autocomplete="off" enterkeyhint="send"></textarea>
+          <button type="button" id="btnSend" class="send-btn">发送</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="/js/ui.js"></script>
+<script src="/js/lingji-api.js"></script>
+<script>
+(function () {
+  var STORAGE_KEY = 'lingji_theme';
+  var btn = document.getElementById('btnTheme');
+
+  function applyTheme(theme) {
+    var next = theme === 'light' ? 'light' : 'dark';
+    document.documentElement.dataset.theme = next;
+    if (btn) btn.textContent = next === 'dark' ? '🌙' : '☀️';
+    try { localStorage.setItem(STORAGE_KEY, next); } catch (e) {}
+  }
+
+  try {
+    applyTheme(localStorage.getItem(STORAGE_KEY) || 'dark');
+  } catch (e) {
+    applyTheme('dark');
+  }
+
+  if (btn) {
+    btn.addEventListener('click', function () {
+      var current = document.documentElement.dataset.theme === 'light' ? 'light' : 'dark';
+      applyTheme(current === 'dark' ? 'light' : 'dark');
+    });
+  }
+})();
+</script>
+<script>LingjiChat.init();</script>
+</body>
+</html>

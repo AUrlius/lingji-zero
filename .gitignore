@@ -1,0 +1,35 @@
+# Secrets & local config
+.env
+.env.*
+!.env.example
+**/config/default_config.yaml
+
+# Python
+**/__pycache__/
+**/*.pyc
+**/.venv/
+**/.pytest_cache/
+**/*.egg-info/
+.coverage
+htmlcov/
+
+# Agent runtime data (do not publish)
+**/lingji.db
+**/.lingji/
+**/*checkpoints*.db
+**/memory_db/
+
+# Node spike
+**/node_modules/
+
+# Build artifacts
+lingji-gateway/lingji-gateway
+lingji-gateway/lingji-gateway.exe
+**/dist/
+**/build/
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

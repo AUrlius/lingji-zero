@@ -1,0 +1,32 @@
+LingjiZero
+Copyright 2026 Lingji Project Contributors
+
+This product includes software developed by third parties under the licenses
+listed below. See each component's repository for full license text.
+
+---
+
+lingji-agent (Python)
+
+- LangGraph / langgraph-checkpoint-sqlite — Apache-2.0
+- langchain-core / langchain-openai — MIT
+- openai — Apache-2.0
+- chromadb — Apache-2.0
+- websockets — BSD-3-Clause
+- pydantic — MIT
+- httpx — BSD-3-Clause
+- structlog — MIT / Apache-2.0 (dual)
+- prometheus_client — Apache-2.0
+- OpenTelemetry SDK — Apache-2.0
+- pytest / pytest-asyncio / pytest-cov — MIT
+
+lingji-gateway (Go)
+
+- Standard library — BSD-style (Go license)
+- See go.mod for transitive dependencies
+
+lingji-gateway-node (Spike)
+
+- ws — MIT
+- uuid — MIT
+- busboy — MIT
