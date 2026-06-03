@@ -1,8 +1,44 @@
 # LingjiZero
 
-Local-first **remote PC Agent**: control a LangGraph agent on your machine from a phone or web chat shell, with HITL approval and sandboxed tools.
+**Control your PC from your phone — with human approval before dangerous tools run.**
 
-**License:** [Apache-2.0](LICENSE) · **Repository:** https://github.com/AUrlius/lingji-zero
+Local-first remote agent: LangGraph on your machine, Go Gateway for devices, sandboxed tools, and file push to mobile/web.
+
+[中文说明](README_zh.md)
+
+[![CI](https://github.com/AUrlius/lingji-zero/actions/workflows/ci.yml/badge.svg)](https://github.com/AUrlius/lingji-zero/actions/workflows/ci.yml)
+[![License](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
+[![Release](https://img.shields.io/github/v/tag/AUrlius/lingji-zero?label=release)](https://github.com/AUrlius/lingji-zero/releases/tag/v0.1.0-mvp)
+
+---
+
+## Why not another chat box?
+
+Most “AI agents” stop at a chat window. LingjiZero is built for **doing work on your PC** from a phone or browser — safely.
+
+| Pain | LingjiZero |
+|------|------------|
+| Agent runs shell/delete on your machine with no gate | **HITL:** CRITICAL tools pause until you approve on phone/web |
+| One-size sandbox for everything | **Risk levels + sanitizer:** suspicious input can force Docker isolation |
+| Hard to get files off the PC | **G6:** push files from PC to the chat for download |
+| Opaque monolith | **Open stack:** Python Agent + Go Gateway + embed web shell — fork and extend |
+
+---
+
+## What you get (today)
+
+| Implemented | Not in this release |
+|-------------|---------------------|
+| Phone/Web → Gateway → LangGraph Agent | Plugin marketplace |
+| 9 built-in tools (files, shell, system, push-to-user) | MCP client (design only) |
+| HITL approve/reject + crash recovery | VLM / GUI automation |
+| Native + Docker sandbox, FailClosed | microVM |
+| Prompt sanitizer + guardrails | `lingji init` CLI |
+| Docker Compose local stack, **248** unit tests + CI | |
+
+Extend via PR: [examples/custom_tool/](examples/custom_tool/) · [CONTRIBUTING.md](CONTRIBUTING.md#adding-a-tool)
+
+---
 
 ## Architecture
 
@@ -11,41 +47,49 @@ Local-first **remote PC Agent**: control a LangGraph agent on your machine from 
   lingji-phone/         lingji-gateway:8765      lingji-agent/
   embed web shell  ──WS──▶  auth + routing  ◀──WS──  LangGraph
        │                         │                      │
-       │                    HTTP /files                  ├── LLM (DeepSeek)
-       │                    (G6 attachments)              ├── 9 tools + sandbox
+       │                    HTTP /files                  ├── LLM (OpenAI-compatible)
+       │                    (attachments)               ├── 9 tools + sandbox
        └──── HITL_REQ / AGENT_RES ────────────────────────┘
 ```
 
-## Structure
+---
 
+## Quick start (~5 minutes)
+
+Requires **Docker**, **Python 3.11+**, and **Go 1.22+** (for smoke script building Gateway).
+
+```bash
+git clone https://github.com/AUrlius/lingji-zero.git
+cd lingji-zero
+cp .env.example .env          # optional: DEEPSEEK_API_KEY, LINGJI_AUTH_TOKEN
+./scripts/setup-compose.sh
+docker compose up -d gateway
+./scripts/compose-integration-smoke.sh   # expect 6/6
 ```
-LingjiZero/
-├── lingji-agent/         # Python Agent Client
-├── lingji-gateway/       # Go Gateway (production)
-├── lingji-gateway-node/  # Node spike (8766, non-production)
-├── lingji-phone/         # CLI + Web simulator
-├── examples/custom_tool/ # How to add tools
-├── docs/                 # Technical notes (e.g. MCP spike design)
-└── README.md
-```
 
-**Scope (today):** Phone/Web → Gateway → LangGraph + **9 built-in tools**, HITL, sanitizer/sandbox, G6 file push/download.
+Then configure the Agent (see **Developer setup** below), point it at your Gateway, and open the embedded web UI or run `lingji-phone/phone_client.py`.
 
-**Not in this release:** plugin marketplace, MCP client, VLM, microVM. See [CONTRIBUTING.md](CONTRIBUTING.md#adding-a-tool) to add tools via PR.
+---
 
-## Quick start (WSL Ubuntu-24.04)
+## Extend
 
-Example path: `/mnt/e/LingjiPlan/LingjiZero` (Windows: `E:\LingjiPlan\LingjiZero`).
+1. Read [examples/custom_tool/README.md](examples/custom_tool/README.md)
+2. Register tools with `@registry.register` and `RiskLevel`
+3. Import from `main.py` · add tests
+
+Future bridge (not implemented): [docs/MCP_INTEGRATION_SPIKE.md](docs/MCP_INTEGRATION_SPIKE.md)
+
+<details>
+<summary><strong>Developer setup</strong> (Agent + Gateway from source)</summary>
 
 ### Agent
 
 ```bash
 cd lingji-agent
-python3 -m venv .venv
-source .venv/bin/activate
+python3 -m venv .venv && source .venv/bin/activate
 pip install -e .
 cp config/default_config.yaml.example config/default_config.yaml
-# Edit default_config.yaml: DEEPSEEK_API_KEY or llm.api_key, network.auth_token
+# Edit: llm.api_key, network.auth_token, network.gateway_host
 
 python -m pytest tests/ -q
 ```
@@ -58,47 +102,31 @@ go test ./...
 go build -o lingji-gateway .
 ```
 
-### Integration
-
-**Docker compose (recommended)**
-
-```bash
-cd ..   # LingjiZero root
-cp .env.example .env   # optional secrets
-./scripts/setup-compose.sh
-docker compose up -d gateway
-./scripts/compose-integration-smoke.sh   # expect 6/6
-```
-
-**Local Gateway binary**
+### Integration (local Gateway binary)
 
 ```bash
 cd lingji-agent
 python tests/integration_test.py
 ```
 
-### Phone
+### Phone CLI
 
 ```bash
 cd lingji-phone
-python phone_client.py   # requires Gateway + Agent online
+python phone_client.py
 ```
 
-## Extending the Agent (tools)
+WSL path notes: [MIGRATION.md](MIGRATION.md)
 
-1. Read [examples/custom_tool/README.md](examples/custom_tool/README.md)
-2. Register with `@registry.register` and set `RiskLevel`
-3. Import your module from `main.py` at startup
-4. Add tests (see `lingji-agent/tests/test_custom_tool_example.py`)
+</details>
 
-Future: [docs/MCP_INTEGRATION_SPIKE.md](docs/MCP_INTEGRATION_SPIKE.md) (design only).
+---
 
 ## Docs
 
-- [MIGRATION.md](MIGRATION.md) — layout and WSL paths
+- [MIGRATION.md](MIGRATION.md) — layout, WSL paths
 - [CONTRIBUTING.md](CONTRIBUTING.md) · [SECURITY.md](SECURITY.md)
-- [OPEN_SOURCE_RELEASE.md](OPEN_SOURCE_RELEASE.md) — release checklist
 
 ## License
 
-Copyright 2026 Lingji Project Contributors. Licensed under the Apache License, Version 2.0.
+Copyright 2026 Lingji Project Contributors. [Apache License 2.0](LICENSE).
