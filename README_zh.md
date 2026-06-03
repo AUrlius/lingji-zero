@@ -52,6 +52,8 @@
        └──── HITL_REQ / AGENT_RES ────────────────────────┘
 ```
 
+生产 Gateway 为 **Go**（`lingji-gateway/`）；`lingji-gateway-node/` 为 Node.js 实验 Spike。GitHub 语言统计将其与 `lingji-gateway/web/js/` 一并计入 **JavaScript**，不会单独显示 Node.js。
+
 ---
 
 ## 快速开始（约 5 分钟）

@@ -52,6 +52,8 @@ Extend via PR: [examples/custom_tool/](examples/custom_tool/) · [CONTRIBUTING.m
        └──── HITL_REQ / AGENT_RES ────────────────────────┘
 ```
 
+Production Gateway is **Go** (`lingji-gateway/`); `lingji-gateway-node/` is an experimental Node.js spike. GitHub language stats count both it and `lingji-gateway/web/js/` as **JavaScript** (not a separate Node.js label).
+
 ---
 
 ## Quick start (~5 minutes)
