@@ -42,7 +42,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("[Gateway] web embed 失败: %v", err)
 	}
-	webServer := http.FileServer(http.FS(webRoot))
+	webServer := handler.NoCacheStatic(http.FileServer(http.FS(webRoot)))
 
 	// 注册路由
 	http.Handle("/ws", wsHandler)
