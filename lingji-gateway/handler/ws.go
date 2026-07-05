@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"fmt"
 	"log"
 	"net/http"
 	"time"
@@ -181,11 +182,11 @@ func (h *WSHandler) writePump(c *hub.Client) {
 func (h *WSHandler) routeMessage(msgType protocol.MsgType, fromDevice string, raw []byte) {
 	switch msgType {
 	case protocol.MsgCmdText, protocol.MsgCmdListSessions:
-		pcID := "lingji-pc"
+		pcID := resolveTargetAgentID(raw)
 		if !h.hub.SendToDevice(pcID, raw) {
-			log.Printf("[Route] PC 不在线，消息入离线队列")
+			log.Printf("[Route] Agent %s 不在线，消息入离线队列", pcID)
 			h.queue.Enqueue(pcID, string(raw))
-			h.notifyDelayed(fromDevice)
+			h.notifyDelayed(fromDevice, pcID)
 		}
 
 	case protocol.MsgAgentRes:
@@ -195,7 +196,11 @@ func (h *WSHandler) routeMessage(msgType protocol.MsgType, fromDevice string, ra
 		h.deliverDownstream(raw)
 
 	case protocol.MsgHitlRes:
-		h.hub.SendToDevice("lingji-pc", raw)
+		pcID := resolveTargetAgentID(raw)
+		if !h.hub.SendToDevice(pcID, raw) {
+			log.Printf("[Route] HITL_RES 目标 Agent %s 不在线，入离线队列", pcID)
+			h.queue.Enqueue(pcID, string(raw))
+		}
 	}
 }
 
@@ -214,11 +219,13 @@ func (h *WSHandler) deliverOfflineMessages(deviceID string, c *hub.Client) {
 	}
 }
 
-func (h *WSHandler) notifyDelayed(toDevice string) {
+func (h *WSHandler) notifyDelayed(toDevice, agentID string) {
+	text := fmt.Sprintf("PC (%s) 当前不在线，消息已缓存，上线后将自动投递。", agentID)
 	reply := protocol.NewMessage(protocol.MsgAgentRes, "gateway", map[string]any{
-		"text":             "PC 当前不在线，消息已缓存，上线后将自动投递。",
+		"text":             text,
 		"status":           "queued",
 		"target_device_id": toDevice,
+		"target_agent_id":  agentID,
 	})
 	if data, err := reply.ToJSON(); err == nil {
 		h.hub.SendToDevice(toDevice, []byte(data))

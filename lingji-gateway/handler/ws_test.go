@@ -104,3 +104,83 @@ func TestDeliverDownstreamOfflineQueue(t *testing.T) {
 		t.Fatalf("expected offline queue entry, got %#v", queued)
 	}
 }
+
+func TestRouteToTargetAgent(t *testing.T) {
+	h := hub.New(120 * time.Second)
+	go h.Run()
+	defer h.Stop()
+
+	q := queue.NewOfflineQueue(16)
+	ws := NewWSHandler(h, config.DefaultConfig(), q)
+
+	pcCh := make(chan []byte, 4)
+	laptopCh := make(chan []byte, 4)
+	h.Register(&hub.Client{DeviceID: "lingji-pc", Send: pcCh, LastBeat: time.Now()})
+	h.Register(&hub.Client{DeviceID: "lingji-laptop", Send: laptopCh, LastBeat: time.Now()})
+	time.Sleep(10 * time.Millisecond)
+
+	cmd := protocol.NewMessage(protocol.MsgCmdText, "phone-1", map[string]any{
+		"text":             "hello laptop",
+		"target_agent_id":  "lingji-laptop",
+	})
+	raw, err := cmd.ToJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ws.routeMessage(protocol.MsgCmdText, "phone-1", []byte(raw))
+
+	select {
+	case got := <-laptopCh:
+		if string(got) != raw {
+			t.Fatalf("laptop got unexpected payload: %s", got)
+		}
+	default:
+		t.Fatal("lingji-laptop should receive targeted CMD_TEXT")
+	}
+
+	select {
+	case <-pcCh:
+		t.Fatal("lingji-pc should not receive laptop-targeted CMD_TEXT")
+	default:
+	}
+}
+
+func TestRouteDefaultAgent(t *testing.T) {
+	h := hub.New(120 * time.Second)
+	go h.Run()
+	defer h.Stop()
+
+	q := queue.NewOfflineQueue(16)
+	ws := NewWSHandler(h, config.DefaultConfig(), q)
+
+	pcCh := make(chan []byte, 4)
+	h.Register(&hub.Client{DeviceID: "lingji-pc", Send: pcCh, LastBeat: time.Now()})
+	time.Sleep(10 * time.Millisecond)
+
+	cmd := protocol.NewMessage(protocol.MsgCmdText, "phone-1", map[string]any{
+		"text": "hello default",
+	})
+	raw, err := cmd.ToJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ws.routeMessage(protocol.MsgCmdText, "phone-1", []byte(raw))
+
+	select {
+	case got := <-pcCh:
+		if string(got) != raw {
+			t.Fatalf("pc got unexpected payload: %s", got)
+		}
+	default:
+		t.Fatal("lingji-pc should receive default CMD_TEXT")
+	}
+}
+
+func TestIsAgentDevice(t *testing.T) {
+	if !IsAgentDevice("lingji-pc") || !IsAgentDevice("lingji-laptop") {
+		t.Fatal("lingji-* should be agent devices")
+	}
+	if IsAgentDevice("phone-abc") || IsAgentDevice("pending-127.0.0.1") {
+		t.Fatal("non lingji-* should not be agent devices")
+	}
+}

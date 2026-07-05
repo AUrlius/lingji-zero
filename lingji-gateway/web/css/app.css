@@ -247,6 +247,24 @@ body {
 
 .status.off { color: var(--text-status-err); }
 
+.agent-select {
+  position: absolute;
+  right: 48px;
+  top: 50%;
+  transform: translateY(-50%);
+  max-width: 120px;
+  font-size: 11px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-composer);
+  color: var(--text-primary);
+}
+
+.agent-select:disabled {
+  opacity: 0.6;
+}
+
 .chat-wrap {
   flex: 1;
   min-height: 0;

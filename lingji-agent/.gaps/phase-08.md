@@ -44,7 +44,7 @@ cd lingji-gateway
 GOPROXY=https://goproxy.cn,direct go build -o lingji-gateway .
 
 # 上传
-scp lingji-gateway hermes@mygoal.tech:/opt/lingji/
+scp lingji-gateway user@your.gateway.host:/opt/lingji/
 
 # systemd 服务
 sudo tee /etc/systemd/system/lingji-gateway.service << 'EOF'
@@ -82,7 +82,7 @@ python -m lingji_agent.main
 
 ```bash
 pip install websockets
-python phone_client.py --host 116.62.14.114 --port 8765 --device-id myphone
+python phone_client.py --host lingji.mygoal.tech --port 443 --device-id myphone
 ```
 
 ---

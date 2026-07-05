@@ -7,7 +7,7 @@ import { defaultConfig } from './config.js';
 import { Hub } from './hub/hub.js';
 import { FilesHandler } from './handler/files.js';
 import { WSHandler } from './handler/ws.js';
-import { OfflineQueue } from './queue/offline.js';
+import { DEFAULT_AGENT_ID, isAgentDevice } from './handler/routing.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -39,6 +39,27 @@ export function createServer(overrides = {}) {
       res.end(
         JSON.stringify({ status: 'ok', online: hub.len(), port: cfg.port, runtime: 'node' }),
       );
+      return;
+    }
+
+    if (url.pathname === '/v1/agents') {
+      if (req.method !== 'GET') {
+        res.writeHead(405);
+        res.end('method not allowed');
+        return;
+      }
+      const authOK =
+        !cfg.authToken ||
+        req.headers.authorization === `Bearer ${cfg.authToken}` ||
+        url.searchParams.get('token') === cfg.authToken;
+      if (!authOK) {
+        res.writeHead(401);
+        res.end('unauthorized');
+        return;
+      }
+      const agents = hub.onlineDevices().filter(isAgentDevice).map((device_id) => ({ device_id }));
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ agents, default_agent_id: DEFAULT_AGENT_ID }));
       return;
     }
 

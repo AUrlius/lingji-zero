@@ -5,6 +5,7 @@ llm:
   provider: deepseek
 network:
   auth_token: ""
+  # 每台 PC 使用唯一 device_id（如 lingji-pc、lingji-laptop）；手机 Web 通过 target_agent_id 选择目标
   device_id: lingji-pc
   gateway_host: lingji.mygoal.tech
   gateway_port: 443

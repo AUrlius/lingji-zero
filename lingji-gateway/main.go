@@ -31,7 +31,12 @@ func main() {
 
 	// 创建 WS 处理器
 	wsHandler := handler.NewWSHandler(h, cfg, q)
+	agentsHandler := handler.NewAgentsHandler(h, cfg)
 	filesHandler := handler.NewFilesHandler(cfg)
+
+	// H1 RunRegistry + WebSocket event stream
+	runWSHub := handler.NewRunWSHub()
+	runRegistry := handler.NewRunRegistry(runWSHub)
 
 	webRoot, err := fs.Sub(webEmbed, "web")
 	if err != nil {
@@ -41,13 +46,23 @@ func main() {
 
 	// 注册路由
 	http.Handle("/ws", wsHandler)
+	http.Handle("/v1/agents", agentsHandler)
 	http.Handle("/files", filesHandler)
 	http.Handle("/files/", filesHandler)
 	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		// online = 当前 WebSocket 连接数（含 Agent device 与 Phone/Web 客户端）
 		fmt.Fprintf(w, `{"status":"ok","online":%d,"port":%d}`, h.Len(), cfg.Port)
 	})
+
+	// H0 RunRegistry HTTP
+	http.HandleFunc("GET /v1/health", runRegistry.HandleHealth)
+	http.HandleFunc("POST /v1/runs", runRegistry.HandleCreateRun)
+	http.HandleFunc("GET /v1/runs/{run_id}", runRegistry.HandleGetRun)
+	http.HandleFunc("POST /v1/runs/{run_id}/events", runRegistry.HandlePostEvent)
+
+	// H1 WebSocket event stream
+	http.HandleFunc("GET /v1/ws/runs", runRegistry.ServeWS)
+
 	http.Handle("/", webServer)
 
 	// 优雅退出

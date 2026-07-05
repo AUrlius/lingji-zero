@@ -6,9 +6,9 @@
 
 | 组件 | WSL 路径 |
 |------|----------|
-| Agent | `/home/unix20260308/lingji-agent/` |
-| Gateway | `/home/unix20260308/lingji-gateway/` |
-| Phone | `/home/unix20260308/lingji-phone/` |
+| Agent | `/home/<user>/lingji-agent/` |
+| Gateway | `/home/<user>/lingji-gateway/` |
+| Phone | `/home/<user>/lingji-phone/` |
 
 ## 目标布局
 

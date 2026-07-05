@@ -200,7 +200,7 @@ class PhoneClient:
 
 async def main():
     parser = argparse.ArgumentParser(description="灵机计划 手机客户端")
-    parser.add_argument("--host", default="116.62.14.114", help="Gateway 地址")
+    parser.add_argument("--host", default="lingji.mygoal.tech", help="Gateway 地址")
     parser.add_argument("--port", type=int, default=8765, help="Gateway 端口")
     parser.add_argument("--device-id", default="lingji-phone", help="设备标识")
     args = parser.parse_args()

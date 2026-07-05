@@ -374,6 +374,95 @@ async def test_file_attachment_e2e(r: TestResult):
     except Exception as e:
         r.fail("G6 文件闭环", str(e))
 
+async def test_multi_agent_routing(r: TestResult):
+    """多 PC：target_agent_id 路由到指定 Agent"""
+    try:
+        url = f"ws://{GATEWAY_HOST}:{GATEWAY_PORT}/ws"
+        pc_ws = await websockets.connect(url)
+        laptop_ws = await websockets.connect(url)
+        phone_ws = await websockets.connect(url)
+
+        for ws, dev in [
+            (pc_ws, "lingji-pc"),
+            (laptop_ws, "lingji-laptop"),
+            (phone_ws, "phone-multi"),
+        ]:
+            await ws.send(json.dumps({
+                "msg_id": str(uuid.uuid4()), "msg_type": "AUTH_REQ",
+                "device_id": dev, "timestamp": time.time(),
+                "payload": {"device_id": dev},
+            }))
+            await asyncio.wait_for(ws.recv(), timeout=3)
+
+        await asyncio.sleep(0.3)
+
+        laptop_cmd = {
+            "msg_id": "multi-laptop", "msg_type": "CMD_TEXT",
+            "device_id": "phone-multi", "timestamp": time.time(),
+            "payload": {"text": "to laptop", "target_agent_id": "lingji-laptop"},
+        }
+        await phone_ws.send(json.dumps(laptop_cmd))
+        laptop_msg = json.loads(await asyncio.wait_for(laptop_ws.recv(), timeout=5))
+        if laptop_msg.get("payload", {}).get("text") != "to laptop":
+            r.fail("多 Agent 路由", f"笔记本未收到: {laptop_msg}")
+            return
+
+        try:
+            await asyncio.wait_for(pc_ws.recv(), timeout=1)
+            r.fail("多 Agent 路由", "lingji-pc 不应收到 laptop 定向消息")
+            return
+        except asyncio.TimeoutError:
+            pass
+
+        default_cmd = {
+            "msg_id": "multi-default", "msg_type": "CMD_TEXT",
+            "device_id": "phone-multi", "timestamp": time.time(),
+            "payload": {"text": "to default pc"},
+        }
+        await phone_ws.send(json.dumps(default_cmd))
+        pc_msg = json.loads(await asyncio.wait_for(pc_ws.recv(), timeout=5))
+        if pc_msg.get("payload", {}).get("text") != "to default pc":
+            r.fail("多 Agent 默认路由", f"lingji-pc 未收到: {pc_msg}")
+            return
+
+        r.ok("多 Agent 路由: target_agent_id + 默认 lingji-pc")
+
+        await pc_ws.close()
+        await laptop_ws.close()
+        await phone_ws.close()
+    except Exception as e:
+        r.fail("多 Agent 路由", str(e))
+
+async def test_agents_api(r: TestResult):
+    try:
+        url = f"ws://{GATEWAY_HOST}:{GATEWAY_PORT}/ws"
+        aws = await websockets.connect(url)
+        await aws.send(json.dumps({
+            "msg_id": str(uuid.uuid4()), "msg_type": "AUTH_REQ",
+            "device_id": "lingji-pc", "timestamp": time.time(),
+            "payload": {"device_id": "lingji-pc"},
+        }))
+        await asyncio.wait_for(aws.recv(), timeout=3)
+
+        async with httpx.AsyncClient(base_url=f"http://{GATEWAY_HOST}:{GATEWAY_PORT}") as client:
+            resp = await client.get("/v1/agents")
+            if resp.status_code != 200:
+                r.fail("/v1/agents", resp.text[:120])
+                await aws.close()
+                return
+            data = resp.json()
+            ids = {a["device_id"] for a in data.get("agents", [])}
+            if "lingji-pc" not in ids:
+                r.fail("/v1/agents", f"缺少 lingji-pc: {data}")
+            elif data.get("default_agent_id") != "lingji-pc":
+                r.fail("/v1/agents", f"default 异常: {data}")
+            else:
+                r.ok("/v1/agents 在线列表")
+
+        await aws.close()
+    except Exception as e:
+        r.fail("/v1/agents", str(e))
+
 # ── Main ──────────────────────────────────────────────────
 
 async def run_tests(start_gateway: bool):
@@ -424,6 +513,10 @@ async def run_tests(start_gateway: bool):
         await test_message_roundtrip(results)
         print()
         await test_cross_device_isolation(results)
+        print()
+        await test_multi_agent_routing(results)
+        print()
+        await test_agents_api(results)
         print()
         await test_multiple_messages(results)
         print()

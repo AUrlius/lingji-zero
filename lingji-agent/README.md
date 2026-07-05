@@ -15,9 +15,34 @@ python -m lingji_agent.main
 
 生产 Gateway：`lingji.mygoal.tech:443`（见 `config/default_config.yaml` 或环境变量 `LINGJI_GATEWAY_HOST` / `LINGJI_GATEWAY_PORT`）。
 
+## 多 PC 部署（第二台电脑 / 笔记本）
+
+每台电脑独立运行一个 Agent，使用**不同的 `device_id`**，手机 Web 顶部可选择目标电脑。
+
+| 机器 | 建议 `device_id` | 说明 |
+|------|------------------|------|
+| 主 PC | `lingji-pc` | 默认目标 |
+| 第二台 PC / 笔记本 | `lingji-laptop` | 或其它 `lingji-*` 唯一 ID |
+
+**笔记本 WSL 步骤：**
+
+```bash
+git clone https://github.com/AUrlius/lingji-zero.git   # 或 rsync 源码
+cd lingji-zero/lingji-agent
+python3 -m venv .venv && source .venv/bin/activate
+pip install -e .
+cp config/default_config.yaml.example config/default_config.yaml
+# 编辑 default_config.yaml：
+#   network.device_id: lingji-laptop
+#   llm.api_key / network.auth_token 与主 PC 相同
+python3 -m lingji_agent.main
+```
+
+无需改云防火墙（Agent 主动连 `lingji.mygoal.tech:443`）。Gateway 需已部署含 `/v1/agents` 与 `target_agent_id` 路由的版本。
+
 ## 进程管理（PID 锁）
 
-单实例锁文件：`/tmp/lingji-agent.pid`，防止多个 Agent 抢占 `lingji-pc`。
+单实例锁文件：`/tmp/lingji-agent.pid`，防止**同一台机器**上多个进程抢占同一 `device_id`。
 
 ```bash
 # 查看是否在运行

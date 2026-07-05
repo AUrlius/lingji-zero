@@ -2,6 +2,7 @@ import { WebSocketServer } from 'ws';
 import { Client, Hub } from '../hub/hub.js';
 import { OfflineQueue } from '../queue/offline.js';
 import { MsgType, newMessage, parseMessage, toJSON } from '../protocol/message.js';
+import { DEFAULT_AGENT_ID, isAgentDevice, resolveTargetAgentID } from './routing.js';
 
 export class WSHandler {
   /**
@@ -113,10 +114,10 @@ export class WSHandler {
     switch (msgType) {
       case MsgType.CMD_TEXT:
       case MsgType.CMD_LIST_SESSIONS: {
-        const pcID = 'lingji-pc';
+        const pcID = resolveTargetAgentID(raw);
         if (!this.hub.sendToDevice(pcID, raw)) {
           this.queue.enqueue(pcID, raw);
-          this.notifyDelayed(fromDevice);
+          this.notifyDelayed(fromDevice, pcID);
         }
         break;
       }
@@ -124,9 +125,13 @@ export class WSHandler {
       case MsgType.HITL_REQ:
         this.deliverDownstream(raw);
         break;
-      case MsgType.HITL_RES:
-        this.hub.sendToDevice('lingji-pc', raw);
+      case MsgType.HITL_RES: {
+        const pcID = resolveTargetAgentID(raw);
+        if (!this.hub.sendToDevice(pcID, raw)) {
+          this.queue.enqueue(pcID, raw);
+        }
         break;
+      }
       default:
         break;
     }
@@ -140,12 +145,13 @@ export class WSHandler {
     }
   }
 
-  /** @param {string} toDevice */
-  notifyDelayed(toDevice) {
+  /** @param {string} toDevice @param {string} agentId */
+  notifyDelayed(toDevice, agentId) {
     const reply = newMessage(MsgType.AGENT_RES, 'gateway', {
-      text: 'PC 当前不在线，消息已缓存，上线后将自动投递。',
+      text: `PC (${agentId}) 当前不在线，消息已缓存，上线后将自动投递。`,
       status: 'queued',
       target_device_id: toDevice,
+      target_agent_id: agentId,
     });
     this.hub.sendToDevice(toDevice, toJSON(reply));
   }
