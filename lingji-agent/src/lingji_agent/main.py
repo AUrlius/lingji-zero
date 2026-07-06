@@ -78,10 +78,28 @@ logger = get_logger(__name__)
 @dataclass
 class PendingRun:
     thread_id: str
-    device_id: str
+    device_id: str  # Web connection id (conn-*)
     user_text: str
     system_prompt: str
+    user_id: str = ""  # Fleet user id (user-*); fan-out to all Web entries
     run_started_at: float = field(default_factory=time.monotonic)
+
+
+def _resolve_web_client(msg: Message) -> tuple[str, str]:
+    """Return (connection_id, user_id). Sessions use user_id; WS route uses connection_id."""
+    conn_id = msg.device_id
+    raw = msg.payload.get("user_id")
+    if isinstance(raw, str) and raw.strip():
+        return conn_id, raw.strip()
+    return conn_id, conn_id
+
+
+def _pending_user_id(pending: PendingRun) -> str:
+    if pending.user_id:
+        return pending.user_id
+    if ":" in pending.thread_id:
+        return pending.thread_id.split(":", 1)[0]
+    return pending.device_id
 
 
 def _format_tool_results(tool_results: list[dict]) -> str:
@@ -182,14 +200,15 @@ async def main(config_path: str | None = None):
         router = Router()
 
         async def _reply_session_view(
-            device_id: str,
+            user_id: str,
             thread_id: str,
             *,
+            connection_id: str,
             status: str,
             message: str = "",
         ) -> None:
             """会话列表/切换：回填 history，并附带该 thread 的 pending HITL。"""
-            sessions = list_chat_sessions(db, device_id)
+            sessions = list_chat_sessions(db, user_id)
             sw = next((s for s in sessions if s["thread_id"] == thread_id), None)
             switch_title = sw["title"] if sw else "会话"
             history = await _thread_ui_history(thread_id)
@@ -204,7 +223,8 @@ async def main(config_path: str | None = None):
                 extra["pending_hitl"] = pending_hitl
             await _send_agent_reply(
                 message or f"已切换到：{switch_title}",
-                target_device_id=device_id,
+                target_device_id=connection_id,
+                target_user_id=user_id,
                 **extra,
             )
 
@@ -270,6 +290,7 @@ async def main(config_path: str | None = None):
                             "risk_level": "critical",
                             "tool": payload.get("tool", ""),
                             "target_device_id": pending.device_id,
+                            "target_user_id": pending.user_id or pending.device_id,
                         },
                     )
                     await client.send(hitl_msg)
@@ -282,15 +303,19 @@ async def main(config_path: str | None = None):
             attachments: list[dict] | None = None,
             *,
             target_device_id: str = "",
+            target_user_id: str = "",
             **extra_payload,
         ) -> None:
             logger.info(
-                "🤖 回复 (%d chars, %d attachments) → %s: %s",
+                "🤖 回复 (%d chars, %d attachments) → conn=%s user=%s: %s",
                 len(reply_text),
                 len(attachments or []),
                 target_device_id or "?",
+                target_user_id or "?",
                 reply_text[:200],
             )
+            if target_user_id:
+                extra_payload["target_user_id"] = target_user_id
             if client.ws and not getattr(client.ws, "closed", False):
                 reply_msg = Message(
                     msg_type=MsgType.AGENT_RES,
@@ -392,6 +417,7 @@ async def main(config_path: str | None = None):
                     await _send_agent_reply(
                         "❌ 无法恢复挂起的审批：Agent 状态已丢失，请重新发送指令。",
                         target_device_id=pending.device_id,
+                        target_user_id=_pending_user_id(pending),
                     )
                     hitl_mgr.resolve_interrupt(task_id, "error")
                     pending_runs.pop(task_id, None)
@@ -422,6 +448,7 @@ async def main(config_path: str | None = None):
                         reply_text,
                         result.get("attachments") or None,
                         target_device_id=pending.device_id,
+                        target_user_id=_pending_user_id(pending),
                     )
                     _log_run_complete(pending)
                     return True
@@ -431,6 +458,7 @@ async def main(config_path: str | None = None):
                     await _send_agent_reply(
                         f"❌ HITL 恢复失败：{e}",
                         target_device_id=pending.device_id,
+                        target_user_id=_pending_user_id(pending),
                     )
                     _log_run_complete(pending)
                     return True
@@ -460,7 +488,8 @@ async def main(config_path: str | None = None):
         async def on_cmd_text(msg: Message):
             user_text = msg.payload.get("text", "")
             uploads = msg.payload.get("uploads") or []
-            device_id = msg.device_id
+            conn_id, user_id = _resolve_web_client(msg)
+            device_id = user_id
             new_session = bool(msg.payload.get("new_session"))
             switch_thread_id = msg.payload.get("thread_id") or None
             run_id = str(uuid.uuid4())
@@ -486,8 +515,9 @@ async def main(config_path: str | None = None):
                     )
                     set_active_chat_session(db, device_id, thread_id)
                     await _reply_session_view(
-                        device_id,
+                        user_id,
                         thread_id,
+                        connection_id=conn_id,
                         status="session_switched",
                     )
                     structlog.contextvars.unbind_contextvars("run_id", "device_id")
@@ -504,7 +534,8 @@ async def main(config_path: str | None = None):
                     if not uploads_all_saved(upload_results, len(uploads)):
                         await _send_agent_reply(
                             format_upload_errors(upload_results),
-                            target_device_id=device_id,
+                            target_device_id=conn_id,
+                            target_user_id=user_id,
                         )
                         structlog.contextvars.unbind_contextvars("run_id", "device_id")
                         return
@@ -521,7 +552,8 @@ async def main(config_path: str | None = None):
                         )
                         await _send_agent_reply(
                             format_saved_reply(upload_results),
-                            target_device_id=device_id,
+                            target_device_id=conn_id,
+                            target_user_id=user_id,
                         )
                         structlog.contextvars.unbind_contextvars("run_id", "device_id")
                         return
@@ -556,7 +588,8 @@ async def main(config_path: str | None = None):
                 if thread_has_pending_hitl(db, thread_id, pending_runs):
                     await _send_agent_reply(
                         "⏳ 当前会话仍有危险操作等待审批，请先批准或拒绝后再发送新消息。",
-                        target_device_id=device_id,
+                        target_device_id=conn_id,
+                        target_user_id=user_id,
                     )
                     structlog.contextvars.unbind_contextvars("run_id", "device_id")
                     return
@@ -591,7 +624,8 @@ async def main(config_path: str | None = None):
                             )
                             await _send_agent_reply(
                                 SecurityGuardrail.block_message(gr),
-                                target_device_id=device_id,
+                                target_device_id=conn_id,
+                            target_user_id=user_id,
                             )
                             structlog.contextvars.unbind_contextvars("run_id", "device_id")
                             return
@@ -601,7 +635,8 @@ async def main(config_path: str | None = None):
                 )
                 pending = PendingRun(
                     thread_id=thread_id,
-                    device_id=device_id,
+                    device_id=conn_id,
+                    user_id=user_id,
                     user_text=user_text,
                     system_prompt=system_prompt,
                     run_started_at=run_started_at,
@@ -635,31 +670,34 @@ async def main(config_path: str | None = None):
                 await _send_agent_reply(
                     reply_text,
                     attachments,
-                    target_device_id=device_id,
+                    target_device_id=conn_id,
+                    target_user_id=user_id,
                 )
                 _log_run_complete(pending)
             structlog.contextvars.unbind_contextvars("run_id", "device_id")
 
         async def on_cmd_list_sessions(msg: Message):
-            device_id = msg.device_id
-            sessions = list_chat_sessions(db, device_id)
+            conn_id, user_id = _resolve_web_client(msg)
+            sessions = list_chat_sessions(db, user_id)
             active_tid = next(
                 (s["thread_id"] for s in sessions if s.get("active")),
                 None,
             )
             if not active_tid:
-                active_tid = get_active_chat_thread(db, device_id)
+                active_tid = get_active_chat_thread(db, user_id)
             if active_tid:
                 await _reply_session_view(
-                    device_id,
+                    user_id,
                     active_tid,
+                    connection_id=conn_id,
                     status="sessions",
                     message="",
                 )
             else:
                 await _send_agent_reply(
                     "",
-                    target_device_id=device_id,
+                    target_device_id=conn_id,
+                    target_user_id=user_id,
                     status="sessions",
                     sessions=sessions,
                     history=[],
@@ -710,6 +748,7 @@ async def main(config_path: str | None = None):
                         await _send_agent_reply(
                             "先前危险操作审批已失效（Agent 状态已丢失），请重新发送指令。",
                             target_device_id=ctx.device_id,
+                            target_user_id=ctx.device_id,
                         )
                     logger.warning(
                         "HITL 不可恢复，已过期: task=%s thread=%s",
@@ -733,6 +772,7 @@ async def main(config_path: str | None = None):
                             "recovered": True,
                             "resumable": True,
                             "target_device_id": pending.device_id,
+                            "target_user_id": _pending_user_id(pending),
                         },
                     )
                     await client.send(hitl_msg)

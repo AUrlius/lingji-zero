@@ -35,8 +35,9 @@ web/
 ```text
 pageshow → LingjiChat.init()
   → connect() → AUTH_REQ
-  → AGENT_RES connected → CMD_LIST_SESSIONS
-  → applySessionPayload (history + pending_hitl)
+  → AGENT_RES connected → CMD_LIST_SESSIONS（强制同步，sessionStorage 仅离线缓存）
+  → client_id：同 token → user-{hash}（Fleet 第一期）
+  → conn-* + user_id payload（Fleet 1.5 多端同时在线）
 
 btnNewChat → startNewSession()
 session-item → switchSession(thread_id)

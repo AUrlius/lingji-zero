@@ -124,12 +124,17 @@ func (h *WSHandler) readPump(c *hub.Client) {
 
 			newID, ok := msg.Payload["device_id"].(string)
 			if ok && newID != "" {
+				userID, _ := msg.Payload["user_id"].(string)
+				if userID == "" {
+					userID = newID
+				}
 				oldID := c.DeviceID
 				c.DeviceID = newID
+				c.UserID = userID
 				h.hub.ReRegister(c, oldID)
-				log.Printf("[WS] 设备认证: %s → %s", oldID, newID)
+				log.Printf("[WS] 设备认证: %s → %s (user=%s)", oldID, newID, userID)
 
-				h.deliverOfflineMessages(newID, c)
+				h.deliverOfflineMessages(c)
 
 				reply := protocol.NewMessage(protocol.MsgAgentRes, "gateway", map[string]any{
 					"text":   "auth_ok",
@@ -204,17 +209,31 @@ func (h *WSHandler) routeMessage(msgType protocol.MsgType, fromDevice string, ra
 	}
 }
 
-func (h *WSHandler) deliverOfflineMessages(deviceID string, c *hub.Client) {
-	msgs := h.queue.DequeueAll(deviceID)
-	if len(msgs) == 0 {
-		return
+func (h *WSHandler) deliverOfflineMessages(c *hub.Client) {
+	keys := []string{c.DeviceID}
+	if c.UserID != "" && c.UserID != c.DeviceID {
+		keys = append(keys, c.UserID)
 	}
-	log.Printf("[Queue] 投递 %d 条离线消息给 %s", len(msgs), deviceID)
-	for _, msg := range msgs {
-		select {
-		case c.Send <- []byte(msg):
-		default:
-			log.Printf("[Queue] 离线消息投递失败 (buffer full): %s", deviceID)
+	seen := make(map[string]struct{})
+	for _, key := range keys {
+		if key == "" {
+			continue
+		}
+		if _, dup := seen[key]; dup {
+			continue
+		}
+		seen[key] = struct{}{}
+		msgs := h.queue.DequeueAll(key)
+		if len(msgs) == 0 {
+			continue
+		}
+		log.Printf("[Queue] 投递 %d 条离线消息给 %s (conn=%s user=%s)", len(msgs), key, c.DeviceID, c.UserID)
+		for _, msg := range msgs {
+			select {
+			case c.Send <- []byte(msg):
+			default:
+				log.Printf("[Queue] 离线消息投递失败 (buffer full): %s", key)
+			}
 		}
 	}
 }
@@ -232,12 +251,22 @@ func (h *WSHandler) notifyDelayed(toDevice, agentID string) {
 	}
 }
 
-// deliverDownstream 将 AGENT_RES / HITL_REQ 定向投递到 target_device_id，避免多 Web 端串台。
+// deliverDownstream 将 AGENT_RES / HITL_REQ 投递到 target_user_id（多端）或 target_device_id（单连接）。
 func (h *WSHandler) deliverDownstream(raw []byte) {
 	msg, err := protocol.ParseMessage(string(raw))
 	if err != nil {
 		log.Printf("[Route] 下行消息解析失败，fallback 广播: %v", err)
 		h.hub.BroadcastToAll(raw, "lingji-pc")
+		return
+	}
+
+	targetUser, _ := msg.Payload["target_user_id"].(string)
+	if targetUser != "" {
+		if n := h.hub.SendToUser(targetUser, raw); n > 0 {
+			return
+		}
+		log.Printf("[Route] 用户 %s 无在线连接，入离线队列", targetUser)
+		h.queue.Enqueue(targetUser, string(raw))
 		return
 	}
 

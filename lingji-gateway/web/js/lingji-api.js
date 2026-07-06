@@ -4,26 +4,9 @@
 
   var UI = function () { return window.LingjiUI; };
 
-  var CACHE_SESSIONS = 'lingji_sessions_v1';
-  var CACHE_ACTIVE = 'lingji_active_thread';
-  var CACHE_HITL_QUEUE = 'lingji_hitl_res_queue_v1';
-  var CACHE_TARGET_AGENT = 'lingji_target_agent_id';
-
-  var DEFAULT_AGENT_ID = 'lingji-pc';
-  var AGENT_LABELS = {
-    'lingji-pc': 'Primary PC',
-    'lingji-laptop': 'Laptop',
-  };
-
-  var DEVICE_ID = (function () {
-    var key = 'lingji_device_id';
-    var id = localStorage.getItem(key);
-    if (!id) {
-      id = 'phone-' + Math.random().toString(36).slice(2, 8);
-      localStorage.setItem(key, id);
-    }
-    return id;
-  })();
+  var STORAGE_CLIENT_ID = 'lingji_client_id';
+  var STORAGE_CLIENT_SOURCE = 'lingji_client_id_source';
+  var STORAGE_LEGACY_DEVICE = 'lingji_device_id';
 
   var GATEWAY_TOKEN = (function () {
     var fromUrl = new URLSearchParams(location.search).get('token');
@@ -33,6 +16,78 @@
     }
     try { return localStorage.getItem('lingji_gateway_token') || ''; } catch (e) { return ''; }
   })();
+
+  function fnv1aHex8(str) {
+    var h = 2166136261;
+    for (var i = 0; i < str.length; i++) {
+      h ^= str.charCodeAt(i);
+      h = Math.imul(h, 16777619);
+    }
+    return ('0000000' + (h >>> 0).toString(16)).slice(-8);
+  }
+
+  /** Stable client id: same Gateway token → same id across phone/PC Web (Fleet phase 1). */
+  function resolveClientId(token) {
+    var fromUrl = new URLSearchParams(location.search).get('client_id');
+    if (fromUrl) {
+      try {
+        localStorage.setItem(STORAGE_CLIENT_ID, fromUrl);
+        localStorage.setItem(STORAGE_CLIENT_SOURCE, 'url');
+      } catch (e) {}
+      return fromUrl;
+    }
+    try {
+      if (localStorage.getItem(STORAGE_CLIENT_SOURCE) === 'url') {
+        var custom = localStorage.getItem(STORAGE_CLIENT_ID);
+        if (custom) return custom;
+      }
+    } catch (e) {}
+    if (token) {
+      var derived = 'user-' + fnv1aHex8(token);
+      try {
+        localStorage.setItem(STORAGE_CLIENT_ID, derived);
+        localStorage.setItem(STORAGE_CLIENT_SOURCE, 'token');
+        localStorage.removeItem(STORAGE_LEGACY_DEVICE);
+      } catch (e) {}
+      return derived;
+    }
+    try {
+      var stored = localStorage.getItem(STORAGE_CLIENT_ID);
+      if (stored) return stored;
+      var legacy = localStorage.getItem(STORAGE_LEGACY_DEVICE);
+      if (legacy) return legacy;
+    } catch (e) {}
+    var fallback = 'phone-' + Math.random().toString(36).slice(2, 8);
+    try { localStorage.setItem(STORAGE_LEGACY_DEVICE, fallback); } catch (e) {}
+    return fallback;
+  }
+
+  var USER_ID = resolveClientId(GATEWAY_TOKEN);
+
+  var CONNECTION_ID = (function () {
+    var key = 'lingji_connection_id';
+    try {
+      var id = localStorage.getItem(key);
+      if (id) return id;
+      id = 'conn-' + Math.random().toString(36).slice(2, 10);
+      localStorage.setItem(key, id);
+      return id;
+    } catch (e) {
+      return 'conn-' + Math.random().toString(36).slice(2, 10);
+    }
+  })();
+
+  var CACHE_SESSIONS = 'lingji_sessions_v2_' + USER_ID;
+  var CACHE_ACTIVE = 'lingji_active_v2_' + USER_ID;
+  var CACHE_HITL_QUEUE = 'lingji_hitl_res_queue_v1_' + USER_ID;
+  var CACHE_TARGET_AGENT = 'lingji_target_agent_id';
+
+  var DEFAULT_AGENT_ID = 'lingji-pc';
+  var AGENT_LABELS = {
+    'lingji-pc': 'Primary PC',
+    'lingji-laptop': 'Laptop',
+  };
+
   var DEBUG_UI = new URLSearchParams(location.search).has('debug');
 
   var ws = null;
@@ -59,7 +114,13 @@
   }
 
   function historyCacheKey(threadId) {
-    return 'lingji_history_' + threadId;
+    return 'lingji_history_v2_' + USER_ID + '_' + threadId;
+  }
+
+  function withUserId(payload) {
+    var out = payload || {};
+    if (!out.user_id) out.user_id = USER_ID;
+    return out;
   }
 
   function saveSessionsCache() {
@@ -107,8 +168,20 @@
       var history = loadHistoryCache(activeThreadId);
       if (history && history.length) {
         UI().renderHistory(history);
+        UI().appendSystem('已加载本地缓存，连接后将与服务器同步');
       }
     }
+  }
+
+  function notifyClientIdMigrationOnce() {
+    try {
+      if (localStorage.getItem('lingji_client_migrated_v1')) return;
+      if (localStorage.getItem(STORAGE_CLIENT_SOURCE) !== 'token') return;
+      localStorage.setItem('lingji_client_migrated_v1', '1');
+      UI().appendSystem(
+        '已使用统一账号身份（' + USER_ID + '）；手机与电脑 Web 使用相同 token 时将共享会话。'
+      );
+    } catch (e) {}
   }
 
   function loadHitlResQueue() {
@@ -151,7 +224,7 @@
       ws.send(JSON.stringify({
         msg_id: 'hitl-q-' + (++msgId),
         msg_type: 'HITL_RES',
-        device_id: DEVICE_ID,
+        device_id: CONNECTION_ID,
         timestamp: Date.now() / 1000,
         payload: withTargetAgent({
           task_id: item.task_id,
@@ -180,11 +253,13 @@
   }
 
   function withTargetAgent(payload) {
-    var out = payload || {};
-    if (!out.target_agent_id) {
-      out.target_agent_id = getSelectedAgentId();
-    }
-    return out;
+    return withUserId((function () {
+      var out = payload || {};
+      if (!out.target_agent_id) {
+        out.target_agent_id = getSelectedAgentId();
+      }
+      return out;
+    })());
   }
 
   function renderAgentSelect() {
@@ -235,9 +310,11 @@
 
   function isForThisDevice(payload) {
     if (!payload) return true;
+    var targetUser = payload.target_user_id;
+    if (targetUser && targetUser === USER_ID) return true;
     var target = payload.target_device_id;
     if (!target) return true;
-    return target === DEVICE_ID;
+    return target === CONNECTION_ID;
   }
 
   function finishSessionSwitch() {
@@ -296,7 +373,7 @@
     ws.send(JSON.stringify({
       msg_id: 'list-' + (++msgId),
       msg_type: 'CMD_LIST_SESSIONS',
-      device_id: DEVICE_ID,
+      device_id: CONNECTION_ID,
       timestamp: Date.now() / 1000,
       payload: withTargetAgent({}),
     }));
@@ -306,7 +383,7 @@
     ws.send(JSON.stringify({
       msg_id: 'sw-' + (++msgId),
       msg_type: 'CMD_TEXT',
-      device_id: DEVICE_ID,
+      device_id: CONNECTION_ID,
       timestamp: Date.now() / 1000,
       payload: withTargetAgent({ thread_id: threadId, text: '' }),
     }));
@@ -362,6 +439,7 @@
   function onConnected() {
     refreshOnlineAgents();
     flushHitlResQueue();
+    notifyClientIdMigrationOnce();
     if (pendingSwitchThreadId) {
       var tid = pendingSwitchThreadId;
       pendingSwitchThreadId = null;
@@ -373,6 +451,7 @@
       return;
     }
     requestSessionList();
+    UI().appendSystem('正在同步会话列表…');
   }
 
   function startNewSession() {
@@ -473,7 +552,7 @@
       ws.send(JSON.stringify({
         msg_id: 'hitl-' + (++msgId),
         msg_type: 'HITL_RES',
-        device_id: DEVICE_ID,
+        device_id: CONNECTION_ID,
         timestamp: Date.now() / 1000,
         payload: withTargetAgent({ task_id: taskId, decision: decision }),
       }));
@@ -485,7 +564,7 @@
       var p = msg.payload || {};
       if (p.status === 'connected') {
         authenticated = true;
-        UI().setConnectionStatus('已连接 (' + DEVICE_ID + ')', true);
+        UI().setConnectionStatus('已连接 (' + USER_ID + ')', true);
         UI().appendSystem('✅ 认证成功');
         onConnected();
         return;
@@ -526,7 +605,7 @@
       ws.send(JSON.stringify({
         msg_id: 'hb-' + (++msgId),
         msg_type: 'HEARTBEAT',
-        device_id: DEVICE_ID,
+        device_id: CONNECTION_ID,
         timestamp: Date.now() / 1000,
         payload: {},
       }));
@@ -556,13 +635,13 @@
     try {
       ws = new WebSocket(url);
       ws.onopen = function () {
-        UI().setConnectionStatus('认证中... (' + DEVICE_ID + ')', false);
+        UI().setConnectionStatus('认证中... (' + USER_ID + ')', false);
         ws.send(JSON.stringify({
           msg_id: 'auth-' + (++msgId),
           msg_type: 'AUTH_REQ',
-          device_id: DEVICE_ID,
+          device_id: CONNECTION_ID,
           timestamp: Date.now() / 1000,
-          payload: { device_id: DEVICE_ID, token: GATEWAY_TOKEN },
+          payload: { device_id: CONNECTION_ID, user_id: USER_ID, token: GATEWAY_TOKEN },
         }));
         startHeartbeat();
       };
@@ -626,7 +705,7 @@
     ws.send(JSON.stringify({
       msg_id: 'msg-' + (++msgId),
       msg_type: 'CMD_TEXT',
-      device_id: DEVICE_ID,
+      device_id: CONNECTION_ID,
       timestamp: Date.now() / 1000,
       payload: withTargetAgent(payload),
     }));

@@ -50,6 +50,43 @@ func TestDeliverDownstreamTargeted(t *testing.T) {
 	}
 }
 
+func TestDeliverDownstreamTargetUser(t *testing.T) {
+	h := hub.New(120 * time.Second)
+	go h.Run()
+	defer h.Stop()
+
+	q := queue.NewOfflineQueue(16)
+	ws := NewWSHandler(h, config.DefaultConfig(), q)
+
+	chA := make(chan []byte, 4)
+	chB := make(chan []byte, 4)
+	h.Register(&hub.Client{DeviceID: "conn-a", UserID: "user-1", Send: chA, LastBeat: time.Now()})
+	h.Register(&hub.Client{DeviceID: "conn-b", UserID: "user-1", Send: chB, LastBeat: time.Now()})
+	time.Sleep(10 * time.Millisecond)
+
+	msg := protocol.NewMessage(protocol.MsgAgentRes, "lingji-pc", map[string]any{
+		"text":             "fleet fan-out",
+		"target_user_id":   "user-1",
+		"target_device_id": "conn-a",
+	})
+	raw, err := msg.ToJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ws.deliverDownstream([]byte(raw))
+
+	for name, ch := range map[string]chan []byte{"conn-a": chA, "conn-b": chB} {
+		select {
+		case got := <-ch:
+			if string(got) != raw {
+				t.Fatalf("%s got unexpected payload", name)
+			}
+		default:
+			t.Fatalf("%s should receive user fan-out", name)
+		}
+	}
+}
+
 func TestDeliverDownstreamBroadcastFallback(t *testing.T) {
 	h := hub.New(120 * time.Second)
 	go h.Run()

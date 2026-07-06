@@ -10,7 +10,8 @@ import (
 
 // Client 代表一个已连接的设备
 type Client struct {
-	DeviceID  string
+	DeviceID  string // Web: conn-* 连接 ID；Agent: lingji-*
+	UserID    string // Web: user-* 账号（多连接共享）；Agent 为空则同 DeviceID
 	Conn      *websocket.Conn
 	Send      chan []byte
 	Hub       *Hub
@@ -147,7 +148,7 @@ func (h *Hub) GetClient(deviceID string) *Client {
 	return h.clients[deviceID]
 }
 
-// SendToDevice 向指定设备发送消息
+// SendToDevice 向指定设备连接发送消息
 func (h *Hub) SendToDevice(deviceID string, data []byte) bool {
 	h.mu.RLock()
 	c, ok := h.clients[deviceID]
@@ -164,6 +165,36 @@ func (h *Hub) SendToDevice(deviceID string, data []byte) bool {
 		h.Unregister(c)
 		return false
 	}
+}
+
+// SendToUser 向同一 user_id 的所有 Web 连接广播（Fleet 多入口）
+func (h *Hub) SendToUser(userID string, data []byte) int {
+	if userID == "" {
+		return 0
+	}
+	h.mu.RLock()
+	targets := make([]*Client, 0)
+	for _, c := range h.clients {
+		uid := c.UserID
+		if uid == "" {
+			uid = c.DeviceID
+		}
+		if uid == userID {
+			targets = append(targets, c)
+		}
+	}
+	h.mu.RUnlock()
+
+	sent := 0
+	for _, c := range targets {
+		select {
+		case c.Send <- data:
+			sent++
+		default:
+			log.Printf("[Hub] 用户 %s 连接 %s buffer 满", userID, c.DeviceID)
+		}
+	}
+	return sent
 }
 
 // BroadcastToAll 向所有在线设备广播消息

@@ -26,19 +26,29 @@ python -m lingji_agent.main
 
 **笔记本 WSL 步骤：**
 
+详见 [docs/laptop-deploy-hermes.md](docs/laptop-deploy-hermes.md)（可交给 Hermes 逐步执行）。
+
 ```bash
 git clone https://github.com/AUrlius/lingji-zero.git   # 或 rsync 源码
 cd lingji-zero/lingji-agent
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e .
-cp config/default_config.yaml.example config/default_config.yaml
-# 编辑 default_config.yaml：
-#   network.device_id: lingji-laptop
-#   llm.api_key / network.auth_token 与主 PC 相同
+cp config/default_config.laptop.yaml.example config/default_config.yaml
+# 编辑 default_config.yaml：填入 llm.api_key / network.auth_token（与主 PC 相同）
 python3 -m lingji_agent.main
 ```
 
 无需改云防火墙（Agent 主动连 `lingji.mygoal.tech:443`）。Gateway 需已部署含 `/v1/agents` 与 `target_agent_id` 路由的版本。
+
+## 多入口 Web（手机 + 各 PC 浏览器）
+
+Fleet 第一期：各 Web 入口使用**相同 Gateway token** 时，自动得到相同 **client_id**（形如 `user-xxxxxxxx`），在**同一台目标 PC**（如都选 Primary PC）上**共享会话列表与历史**。
+
+1. 每台设备首次用完整链接登录：`https://lingji.mygoal.tech/?token=YOUR_TOKEN`
+2. 之后可书签裸域名 `https://lingji.mygoal.tech/`（token 已写入 localStorage）
+3. 可选固定身份：`?client_id=my-name`（高级用法）
+4. 与不同 PC 的对话仍分别在各自 Agent 上（第二期 Gateway 收件箱将合并）
+5. **多端同时在线**（v0.1.4+）：每浏览器独立 `conn-*` 连接，共享 `user-*` 身份；手机与 PC Web 可同时「已连接」
 
 ## 进程管理（PID 锁）
 
