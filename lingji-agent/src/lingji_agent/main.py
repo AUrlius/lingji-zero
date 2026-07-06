@@ -36,7 +36,7 @@ from lingji_agent.cognitive.orchestrator import (
 from lingji_agent.cognitive.session_history import load_thread_ui_history
 from lingji_agent.cognitive.prompt_manager import PromptManager
 from lingji_agent.execution.registry import registry
-from lingji_agent.execution.tools import fs_tools, sys_tools, file_tools  # noqa: 触发 @registry.register
+from lingji_agent.execution.tools import fs_tools, sys_tools, file_tools, fleet_tools  # noqa: 触发 @registry.register
 from lingji_agent.execution.hitl import (
     HITLManager,
     build_recovered_context,
@@ -435,6 +435,7 @@ async def main(config_path: str | None = None):
                     registry=registry,
                     hitl_manager=hitl_mgr,
                     sanitizer_force_docker=config.security.sanitizer_force_docker,
+                    user_id=_pending_user_id(pending),
                 )
 
                 try:
@@ -654,6 +655,7 @@ async def main(config_path: str | None = None):
                         connector=connector,
                         registry=registry,
                         thread_id=thread_id,
+                        user_id=user_id,
                         hitl_manager=hitl_mgr,
                         sanitizer_force_docker=config.security.sanitizer_force_docker,
                         continue_thread=continue_thread,
@@ -712,6 +714,79 @@ async def main(config_path: str | None = None):
 
         router.register(MsgType.CMD_TEXT, on_cmd_text)
         router.register(MsgType.CMD_LIST_SESSIONS, on_cmd_list_sessions)
+
+        async def on_fleet_deliver(msg: Message):
+            """Fleet Phase 3：Gateway 投递跨箱文件 → incoming_dir fast-path。"""
+            uploads = msg.payload.get("uploads") or []
+            transfer_id = msg.payload.get("transfer_id", "")
+            user_id = msg.payload.get("user_id", "")
+            thread_id = msg.payload.get("thread_id", "")
+            from_agent = msg.payload.get("from_agent_id", "")
+
+            if not uploads:
+                ack_payload = {
+                    "transfer_id": transfer_id,
+                    "status": "error",
+                    "error": "payload 缺少 uploads",
+                    "from_agent_id": from_agent,
+                    "to_agent_id": config.network.device_id,
+                    "user_id": user_id,
+                    "thread_id": thread_id,
+                }
+            else:
+                run_metrics.increment("fleet_deliver_total")
+                upload_block, upload_results = await save_uploads_to_pc(
+                    uploads,
+                    incoming_dir=config.network.incoming_dir,
+                    gateway_host=config.network.gateway_host,
+                    gateway_port=config.network.gateway_port,
+                    auth_token=config.network.auth_token,
+                )
+                if uploads_all_saved(upload_results, len(uploads)):
+                    run_metrics.increment("fleet_deliver_saved_total")
+                    ack_payload = {
+                        "transfer_id": transfer_id,
+                        "status": "ok",
+                        "saved": upload_results,
+                        "from_agent_id": from_agent,
+                        "to_agent_id": config.network.device_id,
+                        "user_id": user_id,
+                        "thread_id": thread_id,
+                        "uploads": uploads,
+                    }
+                    logger.info(
+                        "Fleet 落盘成功 transfer=%s from=%s files=%d",
+                        transfer_id,
+                        from_agent,
+                        len(upload_results),
+                    )
+                else:
+                    ack_payload = {
+                        "transfer_id": transfer_id,
+                        "status": "error",
+                        "error": format_upload_errors(upload_results),
+                        "from_agent_id": from_agent,
+                        "to_agent_id": config.network.device_id,
+                        "user_id": user_id,
+                        "thread_id": thread_id,
+                        "uploads": uploads,
+                    }
+                    logger.warning(
+                        "Fleet 落盘失败 transfer=%s: %s",
+                        transfer_id,
+                        ack_payload["error"],
+                    )
+                _ = upload_block
+
+            if client.ws and not getattr(client.ws, "closed", False):
+                ack_msg = Message(
+                    msg_type=MsgType.FLEET_ACK,
+                    device_id=config.network.device_id,
+                    payload=ack_payload,
+                )
+                await client.send(ack_msg)
+
+        router.register(MsgType.FLEET_DELIVER, on_fleet_deliver)
 
         async def on_hitl_res(msg: Message):
             decision = msg.payload.get("decision", "rejected")

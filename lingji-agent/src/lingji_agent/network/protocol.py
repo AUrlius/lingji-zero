@@ -31,6 +31,8 @@ class MsgType(str, Enum):
     HITL_REQ = "HITL_REQ"
     HITL_RES = "HITL_RES"
     AGENT_RES = "AGENT_RES"
+    FLEET_DELIVER = "FLEET_DELIVER"
+    FLEET_ACK = "FLEET_ACK"
 
 
 class Message(BaseModel):

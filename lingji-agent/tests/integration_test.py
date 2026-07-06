@@ -374,6 +374,131 @@ async def test_file_attachment_e2e(r: TestResult):
     except Exception as e:
         r.fail("G6 文件闭环", str(e))
 
+async def test_fleet_transfer_e2e(r: TestResult):
+    """Fleet Phase 3: POST /v1/fleet/transfer → FLEET_DELIVER → FLEET_ACK → user fan-out"""
+    try:
+        tmp = Path("/tmp/lingji-fleet-integration.txt")
+        tmp.write_text("fleet-integration-payload", encoding="utf-8")
+
+        async with httpx.AsyncClient(base_url=f"http://{GATEWAY_HOST}:{GATEWAY_PORT}") as client:
+            with tmp.open("rb") as fh:
+                up = await client.post(
+                    "/files",
+                    files={"file": (tmp.name, fh, "text/plain")},
+                )
+            if up.status_code != 200:
+                r.fail("Fleet 文件上传", up.text[:120])
+                return
+            att = up.json()
+
+        url = f"ws://{GATEWAY_HOST}:{GATEWAY_PORT}/ws"
+        pc_ws = await websockets.connect(url)
+        laptop_ws = await websockets.connect(url)
+        user_ws = await websockets.connect(url)
+
+        for ws, dev, uid in [
+            (pc_ws, "lingji-pc", ""),
+            (laptop_ws, "lingji-laptop", ""),
+            (user_ws, "conn-fleet", "user-fleet"),
+        ]:
+            payload = {"device_id": dev}
+            if uid:
+                payload["user_id"] = uid
+            await ws.send(json.dumps({
+                "msg_id": str(uuid.uuid4()), "msg_type": "AUTH_REQ",
+                "device_id": dev, "timestamp": time.time(),
+                "payload": payload,
+            }))
+            await asyncio.wait_for(ws.recv(), timeout=3)
+
+        await asyncio.sleep(0.3)
+
+        transfer_body = {
+            "from_agent_id": "lingji-laptop",
+            "to_agent_id": "lingji-pc",
+            "thread_id": "thread-fleet-1",
+            "user_id": "user-fleet",
+            "uploads": [{
+                "file_id": att["file_id"],
+                "name": att["name"],
+                "size_bytes": att["size_bytes"],
+                "mime": att["mime"],
+                "download_path": att["download_path"],
+            }],
+        }
+        async with httpx.AsyncClient(base_url=f"http://{GATEWAY_HOST}:{GATEWAY_PORT}") as client:
+            resp = await client.post("/v1/fleet/transfer", json=transfer_body)
+        if resp.status_code != 200:
+            r.fail("Fleet transfer HTTP", resp.text[:120])
+            return
+        transfer_id = resp.json().get("transfer_id", "")
+
+        deliver_msg = json.loads(await asyncio.wait_for(pc_ws.recv(), timeout=5))
+        if deliver_msg.get("msg_type") != "FLEET_DELIVER":
+            r.fail("Fleet FLEET_DELIVER", f"got {deliver_msg.get('msg_type')}")
+            return
+
+        await pc_ws.send(json.dumps({
+            "msg_id": str(uuid.uuid4()), "msg_type": "FLEET_ACK",
+            "device_id": "lingji-pc", "timestamp": time.time(),
+            "payload": {
+                "transfer_id": transfer_id,
+                "status": "ok",
+                "saved": [{"name": att["name"], "path": "/tmp/saved.txt"}],
+            },
+        }))
+
+        user_msg = None
+        deadline = time.time() + 5
+        while time.time() < deadline:
+            raw = await asyncio.wait_for(user_ws.recv(), timeout=2)
+            msg = json.loads(raw)
+            if msg.get("payload", {}).get("fleet_status") == "ok":
+                user_msg = msg
+                break
+
+        if not user_msg:
+            r.fail("Fleet ACK fan-out", "user 未收到 fleet 完成通知")
+        else:
+            r.ok("Fleet Laptop→PC transfer + ACK fan-out")
+
+        to_user_body = {
+            "from_agent_id": "lingji-laptop",
+            "to_user_id": "user-fleet",
+            "thread_id": "thread-fleet-2",
+            "user_id": "user-fleet",
+            "uploads": [{
+                "file_id": att["file_id"],
+                "name": att["name"],
+                "size_bytes": att["size_bytes"],
+                "mime": att["mime"],
+                "download_path": att["download_path"],
+            }],
+        }
+        async with httpx.AsyncClient(base_url=f"http://{GATEWAY_HOST}:{GATEWAY_PORT}") as client:
+            resp2 = await client.post("/v1/fleet/transfer", json=to_user_body)
+        if resp2.status_code != 200:
+            r.fail("Fleet to_user transfer", resp2.text[:120])
+        else:
+            got_attachment = False
+            deadline = time.time() + 5
+            while time.time() < deadline:
+                raw = await asyncio.wait_for(user_ws.recv(), timeout=2)
+                msg = json.loads(raw)
+                if msg.get("payload", {}).get("attachments"):
+                    got_attachment = True
+                    break
+            if got_attachment:
+                r.ok("Fleet Laptop→user attachments fan-out")
+            else:
+                r.fail("Fleet to_user", "user 未收到 attachments")
+
+        await pc_ws.close()
+        await laptop_ws.close()
+        await user_ws.close()
+    except Exception as e:
+        r.fail("Fleet transfer E2E", str(e))
+
 async def test_multi_agent_routing(r: TestResult):
     """多 PC：target_agent_id 路由到指定 Agent"""
     try:
@@ -521,6 +646,8 @@ async def run_tests(start_gateway: bool):
         await test_multiple_messages(results)
         print()
         await test_file_attachment_e2e(results)
+        print()
+        await test_fleet_transfer_e2e(results)
     finally:
         if gateway:
             gateway.stop()

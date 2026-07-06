@@ -37,7 +37,8 @@ func main() {
 	defer inboxStore.Close()
 
 	// 创建 WS 处理器
-	wsHandler := handler.NewWSHandler(h, cfg, q, inboxStore)
+	fleetHandler := handler.NewFleetHandler(h, cfg, q, inboxStore)
+	wsHandler := handler.NewWSHandler(h, cfg, q, inboxStore, fleetHandler)
 	agentsHandler := handler.NewAgentsHandler(h, cfg)
 	filesHandler := handler.NewFilesHandler(cfg)
 	inboxHandler := handler.NewInboxHandler(cfg, inboxStore)
@@ -57,6 +58,7 @@ func main() {
 	http.Handle("/v1/agents", agentsHandler)
 	http.HandleFunc("GET /v1/inbox/threads", inboxHandler.HandleThreads)
 	http.HandleFunc("GET /v1/inbox/messages", inboxHandler.HandleMessages)
+	http.HandleFunc("POST /v1/fleet/transfer", fleetHandler.HandleTransfer)
 	http.Handle("/files", filesHandler)
 	http.Handle("/files/", filesHandler)
 	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {

@@ -25,10 +25,11 @@ type WSHandler struct {
 	config *config.Config
 	queue  *queue.OfflineQueue
 	inbox  *store.InboxStore
+	fleet  *FleetHandler
 }
 
-func NewWSHandler(h *hub.Hub, cfg *config.Config, q *queue.OfflineQueue, inbox *store.InboxStore) *WSHandler {
-	return &WSHandler{hub: h, config: cfg, queue: q, inbox: inbox}
+func NewWSHandler(h *hub.Hub, cfg *config.Config, q *queue.OfflineQueue, inbox *store.InboxStore, fleet *FleetHandler) *WSHandler {
+	return &WSHandler{hub: h, config: cfg, queue: q, inbox: inbox, fleet: fleet}
 }
 
 func (h *WSHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -199,16 +200,21 @@ func (h *WSHandler) routeMessage(msgType protocol.MsgType, fromDevice string, ra
 		}
 
 	case protocol.MsgAgentRes:
-		h.deliverDownstream(raw)
+		DeliverDownstream(h.hub, h.queue, raw)
 
 	case protocol.MsgHitlReq:
-		h.deliverDownstream(raw)
+		DeliverDownstream(h.hub, h.queue, raw)
 
 	case protocol.MsgHitlRes:
 		pcID := resolveTargetAgentID(raw)
 		if !h.hub.SendToDevice(pcID, raw) {
 			log.Printf("[Route] HITL_RES 目标 Agent %s 不在线，入离线队列", pcID)
 			h.queue.Enqueue(pcID, string(raw))
+		}
+
+	case protocol.MsgFleetAck:
+		if h.fleet != nil {
+			h.fleet.HandleAck(fromDevice, raw)
 		}
 	}
 }
@@ -257,33 +263,5 @@ func (h *WSHandler) notifyDelayed(toDevice, agentID string) {
 
 // deliverDownstream 将 AGENT_RES / HITL_REQ 投递到 target_user_id（多端）或 target_device_id（单连接）。
 func (h *WSHandler) deliverDownstream(raw []byte) {
-	msg, err := protocol.ParseMessage(string(raw))
-	if err != nil {
-		log.Printf("[Route] 下行消息解析失败，fallback 广播: %v", err)
-		h.hub.BroadcastToAll(raw, "lingji-pc")
-		return
-	}
-
-	targetUser, _ := msg.Payload["target_user_id"].(string)
-	if targetUser != "" {
-		if n := h.hub.SendToUser(targetUser, raw); n > 0 {
-			return
-		}
-		log.Printf("[Route] 用户 %s 无在线连接，入离线队列", targetUser)
-		h.queue.Enqueue(targetUser, string(raw))
-		return
-	}
-
-	target, _ := msg.Payload["target_device_id"].(string)
-	if target != "" && target != "lingji-pc" {
-		if h.hub.SendToDevice(target, raw) {
-			return
-		}
-		log.Printf("[Route] 定向投递失败，入离线队列: %s", target)
-		h.queue.Enqueue(target, string(raw))
-		return
-	}
-
-	// 兼容旧 Agent / 集成测试：无 target 时广播
-	h.hub.BroadcastToAll(raw, "lingji-pc")
+	DeliverDownstream(h.hub, h.queue, raw)
 }

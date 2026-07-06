@@ -30,7 +30,29 @@ func CaptureWSMessage(inbox *store.InboxStore, msgType string, fromDevice string
 		captureCmdText(inbox, fromDevice, p)
 	case "AGENT_RES":
 		captureAgentRes(inbox, fromDevice, p)
+	case "FLEET_ACK":
+		captureFleetAck(inbox, fromDevice, p)
 	}
+}
+
+// CaptureFleetTransfer records a completed fleet file relay in the inbox.
+func CaptureFleetTransfer(inbox *store.InboxStore, threadID, userID, agentID, summary string) {
+	if inbox == nil || summary == "" || userID == "" {
+		return
+	}
+	if threadID == "" {
+		threadID = "fleet-" + userID
+		_ = inbox.UpsertThread(threadID, userID, agentID, "Fleet 传输")
+	}
+	if err := inbox.AppendMessage(threadID, userID, agentID, "agent", summary, "fleet"); err != nil {
+		log.Printf("[Inbox] fleet capture: %v", err)
+	}
+}
+
+func captureFleetAck(inbox *store.InboxStore, fromDevice string, p map[string]any) {
+	// ACK completion is captured in FleetHandler.HandleAck via CaptureFleetTransfer.
+	_ = fromDevice
+	_ = p
 }
 
 func captureCmdText(inbox *store.InboxStore, fromDevice string, p map[string]any) {

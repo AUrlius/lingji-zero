@@ -297,6 +297,9 @@ async def _tool_executor_impl(state: AgentState) -> AgentState:
                     }, ensure_ascii=False)
             else:
                 logger.info("[tool_executor] 执行: %s(%s)", fn_name, fn_args_str)
+                if fn_name == "fleet_send_file":
+                    fn_args.setdefault("thread_id", configurable.get("thread_id", ""))
+                    fn_args.setdefault("user_id", configurable.get("_user_id", ""))
                 with trace_span(f"tool.execute.{fn_name}", {"tool.name": fn_name}):
                     try:
                         raw_result = await _invoke_tool(
@@ -336,10 +339,10 @@ async def _tool_executor_impl(state: AgentState) -> AgentState:
 
 
 def _collect_attachments(tool_results: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """从 send_file_to_user 工具结果合并 attachments（G6）。"""
+    """从 send_file_to_user / fleet_send_file(to_user) 工具结果合并 attachments（G6/Fleet）。"""
     attachments: list[dict[str, Any]] = []
     for item in tool_results:
-        if item.get("tool_name") != "send_file_to_user":
+        if item.get("tool_name") not in ("send_file_to_user", "fleet_send_file"):
             continue
         raw = item.get("result", "")
         try:
@@ -477,11 +480,13 @@ def build_run_config(
     hitl_enabled: bool = True,
     use_interrupt: bool = True,
     sanitizer_force_docker: bool = True,
+    user_id: str = "",
 ) -> dict[str, Any]:
     """构建 ainvoke / Command(resume) 用的 configurable config"""
     return {
         "configurable": {
             "thread_id": thread_id,
+            "_user_id": user_id,
             "_connector": connector,
             "_registry": registry,
             "_hitl_manager": hitl_manager,
@@ -549,6 +554,7 @@ async def run_agent(
     registry: ToolRegistry | None = None,
     history: list[dict[str, Any]] | None = None,
     thread_id: str | None = None,
+    user_id: str = "",
     hitl_manager=None,
     hitl_enabled: bool = True,
     sanitizer_force_docker: bool = True,
@@ -575,6 +581,7 @@ async def run_agent(
         hitl_enabled=hitl_enabled,
         use_interrupt=use_interrupt,
         sanitizer_force_docker=sanitizer_force_docker,
+        user_id=user_id,
     )
 
     initial_state: AgentState | None = None
