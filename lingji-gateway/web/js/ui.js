@@ -12,6 +12,27 @@
     return chat.scrollHeight - chat.scrollTop - chat.clientHeight <= threshold;
   }
 
+  function appendLingjiFiles(parent, lingjiFiles) {
+    if (!lingjiFiles || !lingjiFiles.length) return;
+    var box = document.createElement('div');
+    box.className = 'lingji-files';
+    lingjiFiles.forEach(function (item) {
+      var chip = document.createElement('button');
+      chip.type = 'button';
+      chip.className = 'lf-id-chip';
+      var lfId = item.lingji_file_id || '';
+      chip.textContent = lfId + (item.name ? ' · ' + item.name : '');
+      chip.title = '点击复制灵机文件 ID';
+      chip.addEventListener('click', function () {
+        if (navigator.clipboard && lfId) {
+          navigator.clipboard.writeText(lfId).catch(function () {});
+        }
+      });
+      box.appendChild(chip);
+    });
+    parent.appendChild(box);
+  }
+
   function appendAttachments(parent, attachments) {
     if (!attachments || !attachments.length) return;
     const box = document.createElement('div');
@@ -44,12 +65,18 @@
       if (!chat) return;
       const frag = document.createDocumentFragment();
       (history || []).forEach(function (item) {
-        if (!item || !item.text) return;
+        if (!item) return;
+        if (!item.text && !(item.attachments && item.attachments.length)
+            && !(item.lingji_files && item.lingji_files.length)) return;
         const m = document.createElement('div');
         m.className = 'msg ' + (item.role === 'user' ? 'user' : 'agent');
-        const textNode = document.createElement('div');
-        textNode.textContent = item.text;
-        m.appendChild(textNode);
+        if (item.text) {
+          const textNode = document.createElement('div');
+          textNode.textContent = item.text;
+          m.appendChild(textNode);
+        }
+        appendAttachments(m, item.attachments);
+        appendLingjiFiles(m, item.lingji_files);
         frag.appendChild(m);
       });
       chat.innerHTML = '';
@@ -58,7 +85,7 @@
       window.LingjiUI.scrollChatToBottom(true);
     },
 
-    appendMessage: function (cls, text, attachments) {
+    appendMessage: function (cls, text, attachments, lingjiFiles) {
       const chat = el('chat');
       if (!chat) return;
       const m = document.createElement('div');
@@ -69,6 +96,7 @@
         m.appendChild(textNode);
       }
       appendAttachments(m, attachments);
+      appendLingjiFiles(m, lingjiFiles);
       chat.appendChild(m);
       window.LingjiUI.scrollChatToBottom(cls === 'user');
     },

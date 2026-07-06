@@ -3,6 +3,7 @@ package handler
 import (
 	"encoding/json"
 	"log"
+	"strings"
 
 	"github.com/AUrlius/lingji-gateway/store"
 )
@@ -68,7 +69,12 @@ func captureCmdText(inbox *store.InboxStore, fromDevice string, p map[string]any
 		source = "web"
 	}
 	if text == "" {
-		// session switch or upload-only; still touch thread if present
+		if uploadLine := summarizeUploads(p); uploadLine != "" && threadID != "" {
+			if err := inbox.AppendMessage(threadID, userID, agentID, "user", uploadLine, source); err != nil {
+				log.Printf("[Inbox] CMD_TEXT upload capture: %v", err)
+			}
+			return
+		}
 		if threadID != "" {
 			_ = inbox.UpsertThread(threadID, userID, agentID, "")
 		}
@@ -77,6 +83,31 @@ func captureCmdText(inbox *store.InboxStore, fromDevice string, p map[string]any
 	if err := inbox.AppendMessage(threadID, userID, agentID, "user", text, source); err != nil {
 		log.Printf("[Inbox] CMD_TEXT capture: %v", err)
 	}
+}
+
+func summarizeUploads(p map[string]any) string {
+	raw, ok := p["uploads"].([]any)
+	if !ok || len(raw) == 0 {
+		return ""
+	}
+	names := make([]string, 0, len(raw))
+	for _, item := range raw {
+		m, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		name, _ := m["name"].(string)
+		if name == "" {
+			name, _ = m["file_id"].(string)
+		}
+		if name != "" {
+			names = append(names, name)
+		}
+	}
+	if len(names) == 0 {
+		return "[上传文件]"
+	}
+	return "[上传文件] " + strings.Join(names, ", ")
 }
 
 func captureAgentRes(inbox *store.InboxStore, fromDevice string, p map[string]any) {

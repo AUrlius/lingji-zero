@@ -39,17 +39,19 @@ type FleetHandler struct {
 	config   *config.Config
 	queue    *queue.OfflineQueue
 	inbox    *store.InboxStore
+	registry *store.FileRegistryStore
 	pending  map[string]*pendingTransfer
 	pendingMu sync.RWMutex
 }
 
-func NewFleetHandler(h *hub.Hub, cfg *config.Config, q *queue.OfflineQueue, inbox *store.InboxStore) *FleetHandler {
+func NewFleetHandler(h *hub.Hub, cfg *config.Config, q *queue.OfflineQueue, inbox *store.InboxStore, registry *store.FileRegistryStore) *FleetHandler {
 	return &FleetHandler{
-		hub:     h,
-		config:  cfg,
-		queue:   q,
-		inbox:   inbox,
-		pending: make(map[string]*pendingTransfer),
+		hub:      h,
+		config:   cfg,
+		queue:    q,
+		inbox:    inbox,
+		registry: registry,
+		pending:  make(map[string]*pendingTransfer),
 	}
 }
 
@@ -292,13 +294,107 @@ func (f *FleetHandler) buildAckSummary(fromAgent, toAgent, status string, p map[
 		if label == "" {
 			label = "文件"
 		}
-		return fmt.Sprintf("📁 Fleet: %s %s → %s 已保存", label, fromAgent, toAgent)
+		lfSuffix := ""
+		if saved, ok := p["saved"].([]any); ok {
+			for _, item := range saved {
+				if m, ok := item.(map[string]any); ok {
+					if lf, ok := m["lingji_file_id"].(string); ok && lf != "" {
+						lfSuffix = " · " + lf
+						break
+					}
+				}
+			}
+		}
+		if lfSuffix == "" {
+			if lfs, ok := p["lingji_files"].([]any); ok && len(lfs) > 0 {
+				if m, ok := lfs[0].(map[string]any); ok {
+					if lf, ok := m["lingji_file_id"].(string); ok && lf != "" {
+						lfSuffix = " · " + lf
+					}
+				}
+			}
+		}
+		return fmt.Sprintf("📁 Fleet: %s %s → %s 已保存%s", label, fromAgent, toAgent, lfSuffix)
 	}
 	errText, _ := p["error"].(string)
 	if errText == "" {
 		errText = "传输失败"
 	}
 	return fmt.Sprintf("📁 Fleet: %s → %s 失败 (%s)", fromAgent, toAgent, errText)
+}
+
+type fleetRelayRequest struct {
+	LingjiFileID string `json:"lingji_file_id"`
+	UserID       string `json:"user_id"`
+	FromAgentID  string `json:"from_agent_id"`
+	ToAgentID    string `json:"to_agent_id"`
+	ToUserID     string `json:"to_user_id"`
+	ThreadID     string `json:"thread_id"`
+}
+
+func (f *FleetHandler) HandleRelay(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if !f.authOK(r) {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	if f.registry == nil {
+		http.Error(w, "registry unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	var req fleetRelayRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+	toAgent := strings.TrimSpace(req.ToAgentID)
+	toUser := strings.TrimSpace(req.ToUserID)
+	if req.LingjiFileID == "" || req.UserID == "" {
+		http.Error(w, "lingji_file_id and user_id required", http.StatusBadRequest)
+		return
+	}
+	if (toAgent == "" && toUser == "") || (toAgent != "" && toUser != "") {
+		http.Error(w, "exactly one of to_agent_id or to_user_id required", http.StatusBadRequest)
+		return
+	}
+	lf, err := f.registry.Get(req.UserID, req.LingjiFileID)
+	if err != nil || lf == nil {
+		http.Error(w, "file not found", http.StatusNotFound)
+		return
+	}
+	holder := lf.HolderAgentID
+	if holder == "" {
+		http.Error(w, "file has no holder", http.StatusBadRequest)
+		return
+	}
+	relay := protocol.NewMessage(protocol.MsgFleetRelayByID, "gateway", map[string]any{
+		"lingji_file_id": req.LingjiFileID,
+		"user_id":        req.UserID,
+		"from_agent_id":  req.FromAgentID,
+		"to_agent_id":    toAgent,
+		"to_user_id":     toUser,
+		"thread_id":      req.ThreadID,
+		"local_path":     lf.LocalPath,
+		"name":           lf.Name,
+	})
+	raw, err := relay.ToJSON()
+	if err != nil {
+		http.Error(w, "encode failed", http.StatusInternalServerError)
+		return
+	}
+	status := "pending"
+	if !f.hub.SendToDevice(holder, []byte(raw)) {
+		f.queue.Enqueue(holder, raw)
+		status = "queued"
+	}
+	f.writeJSON(w, http.StatusOK, map[string]any{
+		"status":          status,
+		"lingji_file_id":  req.LingjiFileID,
+		"holder_agent_id": holder,
+	})
 }
 
 func (f *FleetHandler) writeJSON(w http.ResponseWriter, code int, v any) {

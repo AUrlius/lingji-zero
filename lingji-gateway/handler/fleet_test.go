@@ -28,7 +28,7 @@ func testFleetSetup(t *testing.T) (*hub.Hub, *FleetHandler, *WSHandler, *store.I
 	}
 	t.Cleanup(func() { inbox.Close() })
 
-	fleet := NewFleetHandler(h, config.DefaultConfig(), q, inbox)
+	fleet := NewFleetHandler(h, config.DefaultConfig(), q, inbox, nil)
 	ws := NewWSHandler(h, config.DefaultConfig(), q, inbox, fleet)
 	return h, fleet, ws, inbox
 }
@@ -133,7 +133,7 @@ func TestFleetTransferToAgentOfflineQueue(t *testing.T) {
 	h, _, _, _ := testFleetSetup(t)
 
 	q := queue.NewOfflineQueue(16)
-	offlineFleet := NewFleetHandler(h, config.DefaultConfig(), q, nil)
+	offlineFleet := NewFleetHandler(h, config.DefaultConfig(), q, nil, nil)
 
 	body := map[string]any{
 		"from_agent_id": "lingji-laptop",

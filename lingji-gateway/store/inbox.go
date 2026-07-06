@@ -97,6 +97,14 @@ func (s *InboxStore) Close() error {
 	return s.db.Close()
 }
 
+// DB exposes the underlying SQLite handle (shared with file registry).
+func (s *InboxStore) DB() *sql.DB {
+	if s == nil {
+		return nil
+	}
+	return s.db
+}
+
 func nowRFC3339() string {
 	return time.Now().UTC().Format(time.RFC3339Nano)
 }

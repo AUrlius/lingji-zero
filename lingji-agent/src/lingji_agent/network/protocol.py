@@ -33,6 +33,7 @@ class MsgType(str, Enum):
     AGENT_RES = "AGENT_RES"
     FLEET_DELIVER = "FLEET_DELIVER"
     FLEET_ACK = "FLEET_ACK"
+    FLEET_RELAY_BY_ID = "FLEET_RELAY_BY_ID"
 
 
 class Message(BaseModel):

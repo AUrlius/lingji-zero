@@ -11,6 +11,8 @@ class NetworkConfig(BaseModel):
     gateway_host: str = "lingji.mygoal.tech"
     gateway_port: int = 443
     device_id: str = "lingji-pc"
+    display_name: str = ""
+    aliases: list[str] = []
     auth_token: str = ""
     reconnect_delay: float = 1.0
     max_reconnect_delay: float = 60.0

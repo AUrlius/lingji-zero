@@ -70,6 +70,11 @@ from lingji_agent.observability.tracing import add_span_event, trace_span
 from lingji_agent.network.ws_client import GatewayClient
 from lingji_agent.network.router import Router
 from lingji_agent.network.protocol import Message, MsgType, build_agent_res_payload
+from lingji_agent.network.file_registry_client import register_lingji_file
+from lingji_agent.network.file_upload import upload_file_to_gateway
+from lingji_agent.network.fleet_client import request_fleet_transfer
+from lingji_agent.network.fleet_resolve import fetch_online_agents
+from lingji_agent.network.lingji_file_format import append_lf_id_block, lingji_files_payload
 from langgraph.types import Command
 
 logger = get_logger(__name__)
@@ -143,6 +148,11 @@ async def main(config_path: str | None = None):
     os.environ.setdefault("LINGJI_GATEWAY_PORT", str(config.network.gateway_port))
     if config.network.auth_token:
         os.environ.setdefault("LINGJI_AUTH_TOKEN", config.network.auth_token)
+    os.environ.setdefault("LINGJI_DEVICE_ID", config.network.device_id)
+    if config.network.display_name:
+        os.environ.setdefault("LINGJI_DISPLAY_NAME", config.network.display_name)
+    if config.network.aliases:
+        os.environ.setdefault("LINGJI_AGENT_ALIASES", ",".join(config.network.aliases))
     setup_logging(
         trace_log=config.observability.trace_log_enabled and config.observability.enabled,
     )
@@ -197,6 +207,66 @@ async def main(config_path: str | None = None):
         hitl_watchdogs: dict[str, asyncio.Task] = {}
         hitl_resume_lock = asyncio.Lock()
         device_active_threads: dict[str, str] = {}
+
+        async def _register_uploads_as_lingji_files(
+            user_id: str,
+            upload_results: list[dict],
+        ) -> list[dict]:
+            lingji_files: list[dict] = []
+            for r in upload_results:
+                if not r.get("path"):
+                    continue
+                reg = await register_lingji_file(
+                    user_id=user_id,
+                    name=r.get("name", "file"),
+                    holder_agent_id=config.network.device_id,
+                    local_path=r.get("path", ""),
+                    size_bytes=int(r.get("size_bytes") or 0),
+                    mime=r.get("mime", "application/octet-stream"),
+                    gateway_file_id=r.get("gateway_file_id", ""),
+                    source_agent_id=config.network.device_id,
+                    host=config.network.gateway_host,
+                    port=config.network.gateway_port,
+                    auth_token=config.network.auth_token,
+                )
+                lf_id = reg.get("lingji_file_id", "")
+                if lf_id:
+                    r["lingji_file_id"] = lf_id
+                    lingji_files.append({
+                        "lingji_file_id": lf_id,
+                        "name": r.get("name", "file"),
+                    })
+            return lingji_files
+
+        async def _build_fleet_context() -> str:
+            agents = await fetch_online_agents(
+                host=config.network.gateway_host,
+                port=config.network.gateway_port,
+                auth_token=config.network.auth_token,
+            )
+            local_name = config.network.display_name or config.network.device_id
+            lines = [f"- {config.network.device_id}（本机 · {local_name}）"]
+            for agent in agents:
+                did = agent.get("device_id") or ""
+                if not did or did == config.network.device_id:
+                    continue
+                dn = agent.get("display_name") or did
+                lines.append(f"- {did}（{dn}）")
+            return "\n".join(lines)
+
+        def _command_context_from_payload(payload: dict) -> str:
+            entry = (
+                payload.get("command_agent_id")
+                or payload.get("target_agent_id")
+                or ""
+            )
+            if not entry:
+                return ""
+            local = config.network.display_name or config.network.device_id
+            return (
+                f"用户当前从入口设备 {entry} 发令；"
+                f"本机 Agent 为 {config.network.device_id}（{local}）。"
+            )
         router = Router()
 
         async def _reply_session_view(
@@ -554,10 +624,19 @@ async def main(config_path: str | None = None):
                         upsert_chat_session(
                             db, device_id, thread_id, _session_title(title), set_active=True,
                         )
-                        await _send_agent_reply(
+                        lingji_files = await _register_uploads_as_lingji_files(
+                            user_id, upload_results,
+                        )
+                        reply_text = append_lf_id_block(
                             format_saved_reply(upload_results),
+                            lingji_files,
+                        )
+                        await _send_agent_reply(
+                            reply_text,
                             target_device_id=conn_id,
                             target_user_id=user_id,
+                            thread_id=thread_id,
+                            **lingji_files_payload(lingji_files),
                         )
                         structlog.contextvars.unbind_contextvars("run_id", "device_id")
                         return
@@ -636,6 +715,8 @@ async def main(config_path: str | None = None):
 
                 system_prompt = prompt_manager.build_system_prompt(
                     retrieved_memory_context=retrieved_context,
+                    fleet_context=await _build_fleet_context(),
+                    command_context=_command_context_from_payload(msg.payload),
                 )
                 pending = PendingRun(
                     thread_id=thread_id,
@@ -744,16 +825,25 @@ async def main(config_path: str | None = None):
                 )
                 if uploads_all_saved(upload_results, len(uploads)):
                     run_metrics.increment("fleet_deliver_saved_total")
+                    lingji_files = await _register_uploads_as_lingji_files(
+                        user_id, upload_results,
+                    )
+                    saved_with_lf = []
+                    for r in upload_results:
+                        item = dict(r)
+                        saved_with_lf.append(item)
                     ack_payload = {
                         "transfer_id": transfer_id,
                         "status": "ok",
-                        "saved": upload_results,
+                        "saved": saved_with_lf,
                         "from_agent_id": from_agent,
                         "to_agent_id": config.network.device_id,
                         "user_id": user_id,
                         "thread_id": thread_id,
                         "uploads": uploads,
                     }
+                    if lingji_files:
+                        ack_payload["lingji_files"] = lingji_files
                     logger.info(
                         "Fleet 落盘成功 transfer=%s from=%s files=%d",
                         transfer_id,
@@ -787,6 +877,78 @@ async def main(config_path: str | None = None):
                 await client.send(ack_msg)
 
         router.register(MsgType.FLEET_DELIVER, on_fleet_deliver)
+
+        async def on_fleet_relay_by_id(msg: Message):
+            """Fleet Phase 3.1：按 LF-ID 由持有方读盘并中继。"""
+            lf_id = (msg.payload.get("lingji_file_id") or "").strip().upper()
+            local_path = msg.payload.get("local_path") or ""
+            name = msg.payload.get("name") or "file"
+            to_agent = msg.payload.get("to_agent_id") or ""
+            to_user = msg.payload.get("to_user_id") or ""
+            user_id = msg.payload.get("user_id") or ""
+            thread_id = msg.payload.get("thread_id") or ""
+
+            if not lf_id or not local_path:
+                logger.warning("FLEET_RELAY_BY_ID 缺少 lingji_file_id 或 local_path")
+                return
+
+            path = Path(local_path).expanduser()
+            if not path.is_file():
+                logger.error("FLEET_RELAY_BY_ID 本地文件不存在: %s", path)
+                return
+
+            upload_result = await upload_file_to_gateway(
+                path,
+                host=config.network.gateway_host,
+                port=config.network.gateway_port,
+                auth_token=config.network.auth_token,
+            )
+            if upload_result.get("error"):
+                logger.error("FLEET_RELAY_BY_ID 上传失败: %s", upload_result["error"])
+                return
+
+            attachment = {
+                "file_id": upload_result.get("file_id", ""),
+                "name": name,
+                "size_bytes": upload_result.get("size_bytes", 0),
+                "mime": upload_result.get("mime", "application/octet-stream"),
+                "download_path": upload_result.get("download_path", ""),
+            }
+            await register_lingji_file(
+                user_id=user_id,
+                name=name,
+                holder_agent_id=config.network.device_id,
+                local_path=str(path),
+                size_bytes=attachment.get("size_bytes", 0),
+                mime=attachment.get("mime", ""),
+                gateway_file_id=attachment.get("file_id", ""),
+                source_agent_id=config.network.device_id,
+                lingji_file_id=lf_id,
+                host=config.network.gateway_host,
+                port=config.network.gateway_port,
+                auth_token=config.network.auth_token,
+            )
+
+            transfer = await request_fleet_transfer(
+                from_agent_id=config.network.device_id,
+                to_agent_id=to_agent,
+                to_user_id=to_user,
+                thread_id=thread_id,
+                user_id=user_id,
+                uploads=[attachment],
+                host=config.network.gateway_host,
+                port=config.network.gateway_port,
+                auth_token=config.network.auth_token,
+            )
+            logger.info(
+                "FLEET_RELAY_BY_ID %s → agent=%s user=%s status=%s",
+                lf_id,
+                to_agent or "-",
+                to_user or "-",
+                transfer.get("status"),
+            )
+
+        router.register(MsgType.FLEET_RELAY_BY_ID, on_fleet_relay_by_id)
 
         async def on_hitl_res(msg: Message):
             decision = msg.payload.get("decision", "rejected")

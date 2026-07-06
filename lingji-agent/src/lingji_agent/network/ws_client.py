@@ -86,6 +86,8 @@ class GatewayClient:
     async def _send_auth(self):
         """发送 AUTH_REQ 握手消息（含认证 token）"""
         payload = {"device_id": self.config.device_id}
+        if self.config.display_name:
+            payload["display_name"] = self.config.display_name
         if self.config.auth_token:
             payload["token"] = self.config.auth_token
         msg = Message(

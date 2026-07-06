@@ -131,9 +131,11 @@ func (h *WSHandler) readPump(c *hub.Client) {
 				if userID == "" {
 					userID = newID
 				}
+				displayName, _ := msg.Payload["display_name"].(string)
 				oldID := c.DeviceID
 				c.DeviceID = newID
 				c.UserID = userID
+				c.DisplayName = displayName
 				h.hub.ReRegister(c, oldID)
 				log.Printf("[WS] 设备认证: %s → %s (user=%s)", oldID, newID, userID)
 

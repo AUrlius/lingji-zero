@@ -297,7 +297,7 @@ async def _tool_executor_impl(state: AgentState) -> AgentState:
                     }, ensure_ascii=False)
             else:
                 logger.info("[tool_executor] 执行: %s(%s)", fn_name, fn_args_str)
-                if fn_name == "fleet_send_file":
+                if fn_name in ("fleet_send_file", "relay_file_by_id"):
                     fn_args.setdefault("thread_id", configurable.get("thread_id", ""))
                     fn_args.setdefault("user_id", configurable.get("_user_id", ""))
                 with trace_span(f"tool.execute.{fn_name}", {"tool.name": fn_name}):

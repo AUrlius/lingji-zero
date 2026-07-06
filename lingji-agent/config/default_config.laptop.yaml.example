@@ -9,6 +9,11 @@ llm:
 network:
   auth_token: ""
   device_id: lingji-laptop
+  display_name: 空城记
+  aliases:
+    - 空城记
+    - 笔记本
+    - Laptop
   gateway_host: lingji.mygoal.tech
   gateway_port: 443
   incoming_dir: ~/Downloads/LingjiIncoming

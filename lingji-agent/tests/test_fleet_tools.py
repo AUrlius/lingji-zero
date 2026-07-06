@@ -53,6 +53,7 @@ class TestFleetSendFile:
         mock_transfer = AsyncMock(
             return_value={"transfer_id": "xfer-1", "status": "pending", "to_agent_id": "lingji-pc"},
         )
+        mock_register = AsyncMock(return_value={"lingji_file_id": "LF-TEST01"})
         with (
             patch(
                 "lingji_agent.execution.tools.fleet_tools.upload_file_to_gateway",
@@ -61,6 +62,14 @@ class TestFleetSendFile:
             patch(
                 "lingji_agent.execution.tools.fleet_tools.request_fleet_transfer",
                 mock_transfer,
+            ),
+            patch(
+                "lingji_agent.execution.tools.fleet_tools.register_lingji_file",
+                mock_register,
+            ),
+            patch(
+                "lingji_agent.execution.tools.fleet_tools.fetch_online_agents",
+                AsyncMock(return_value=[]),
             ),
         ):
             result = await tool.fn(
@@ -93,6 +102,7 @@ class TestFleetSendFile:
             }
         )
         mock_transfer = AsyncMock(return_value={"transfer_id": "xfer-2", "status": "delivered"})
+        mock_register = AsyncMock(return_value={"lingji_file_id": "LF-TEST02"})
         with (
             patch(
                 "lingji_agent.execution.tools.fleet_tools.upload_file_to_gateway",
@@ -101,6 +111,14 @@ class TestFleetSendFile:
             patch(
                 "lingji_agent.execution.tools.fleet_tools.request_fleet_transfer",
                 mock_transfer,
+            ),
+            patch(
+                "lingji_agent.execution.tools.fleet_tools.register_lingji_file",
+                mock_register,
+            ),
+            patch(
+                "lingji_agent.execution.tools.fleet_tools.fetch_online_agents",
+                AsyncMock(return_value=[]),
             ),
         ):
             result = await tool.fn(

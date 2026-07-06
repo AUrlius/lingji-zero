@@ -118,6 +118,8 @@
   }
 
   function agentLabel(agentId) {
+    var match = onlineAgents.find(function (a) { return a.device_id === agentId; });
+    if (match && match.display_name) return match.display_name;
     return AGENT_LABELS[agentId] || agentId || 'Agent';
   }
 
@@ -209,19 +211,19 @@
 
   function saveSessionsCache() {
     try {
-      sessionStorage.setItem(CACHE_SESSIONS, JSON.stringify(sessions));
+      localStorage.setItem(CACHE_SESSIONS, JSON.stringify(sessions));
       if (activeThreadId) {
-        sessionStorage.setItem(CACHE_ACTIVE, activeThreadId);
+        localStorage.setItem(CACHE_ACTIVE, activeThreadId);
       }
     } catch (e) {}
   }
 
   function loadSessionsCache() {
     try {
-      var raw = sessionStorage.getItem(CACHE_SESSIONS);
+      var raw = localStorage.getItem(CACHE_SESSIONS);
       if (!raw) return false;
       sessions = JSON.parse(raw);
-      activeThreadId = sessionStorage.getItem(CACHE_ACTIVE) || null;
+      activeThreadId = localStorage.getItem(CACHE_ACTIVE) || null;
       return sessions.length > 0;
     } catch (e) {
       return false;
@@ -231,14 +233,14 @@
   function saveHistoryCache(threadId, history) {
     if (!threadId || !Array.isArray(history)) return;
     try {
-      sessionStorage.setItem(historyCacheKey(threadId), JSON.stringify(history));
+      localStorage.setItem(historyCacheKey(threadId), JSON.stringify(history));
     } catch (e) {}
   }
 
   function loadHistoryCache(threadId) {
     if (!threadId) return null;
     try {
-      var raw = sessionStorage.getItem(historyCacheKey(threadId));
+      var raw = localStorage.getItem(historyCacheKey(threadId));
       return raw ? JSON.parse(raw) : null;
     } catch (e) {
       return null;
@@ -270,7 +272,7 @@
 
   function loadHitlResQueue() {
     try {
-      var raw = sessionStorage.getItem(CACHE_HITL_QUEUE);
+      var raw = localStorage.getItem(CACHE_HITL_QUEUE);
       return raw ? JSON.parse(raw) : [];
     } catch (e) {
       return [];
@@ -280,9 +282,9 @@
   function saveHitlResQueue(queue) {
     try {
       if (!queue.length) {
-        sessionStorage.removeItem(CACHE_HITL_QUEUE);
+        localStorage.removeItem(CACHE_HITL_QUEUE);
       } else {
-        sessionStorage.setItem(CACHE_HITL_QUEUE, JSON.stringify(queue));
+        localStorage.setItem(CACHE_HITL_QUEUE, JSON.stringify(queue));
       }
     } catch (e) {}
   }
@@ -335,6 +337,7 @@
       if (!out.target_agent_id) {
         out.target_agent_id = getSelectedAgentId();
       }
+      out.command_agent_id = getSelectedAgentId();
       return out;
     })());
   }
@@ -353,7 +356,8 @@
     onlineAgents.forEach(function (a) {
       var opt = document.createElement('option');
       opt.value = a.device_id;
-      opt.textContent = agentLabel(a.device_id);
+      var label = a.display_name || agentLabel(a.device_id);
+      opt.textContent = label + ' · ' + a.device_id;
       select.appendChild(opt);
     });
     select.value = getSelectedAgentId();
@@ -529,6 +533,18 @@
     UI().closeSidebar();
   }
 
+  function appendToHistoryCache(threadId, role, text, attachments, lingjiFiles) {
+    if (!threadId) return;
+    var history = loadHistoryCache(threadId) || [];
+    history.push({
+      role: role,
+      text: text || '',
+      attachments: attachments || [],
+      lingji_files: lingjiFiles || [],
+    });
+    saveHistoryCache(threadId, history);
+  }
+
   function onConnected() {
     refreshOnlineAgents();
     flushHitlResQueue();
@@ -551,6 +567,16 @@
       return;
     }
     requestSessionList();
+    if (activeThreadId) {
+      var sess = findSession(activeThreadId);
+      var agentId = (sess && sess.agent_id) || selectedAgentId;
+      fetchInboxMessages(activeThreadId, agentId).then(function (history) {
+        if (history.length) {
+          saveHistoryCache(activeThreadId, history);
+          UI().renderHistory(history);
+        }
+      });
+    }
     UI().appendSystem('正在同步会话列表…');
   }
 
@@ -564,7 +590,7 @@
     UI().closeSidebar();
     UI().focusInput();
     try {
-      sessionStorage.removeItem(CACHE_ACTIVE);
+      localStorage.removeItem(CACHE_ACTIVE);
     } catch (e) {}
   }
 
@@ -679,10 +705,16 @@
         return;
       }
       if (switchingSession) finishSessionSwitch();
+      if (p.thread_id) {
+        activeThreadId = p.thread_id;
+        saveSessionsCache();
+      }
       if (p.status === 'queued') {
         UI().appendMessage('agent', '📦 ' + p.text);
-      } else if (p.text || (p.attachments && p.attachments.length)) {
-        UI().appendMessage('agent', p.text || '', p.attachments);
+        appendToHistoryCache(activeThreadId, 'agent', '📦 ' + p.text);
+      } else if (p.text || (p.attachments && p.attachments.length) || (p.lingji_files && p.lingji_files.length)) {
+        UI().appendMessage('agent', p.text || '', p.attachments, p.lingji_files);
+        appendToHistoryCache(activeThreadId, 'agent', p.text || '', p.attachments, p.lingji_files);
       }
     } else if (msg.msg_type === 'HITL_REQ') {
       var hp = msg.payload || {};
@@ -811,9 +843,13 @@
       timestamp: Date.now() / 1000,
       payload: withTargetAgent(payload),
     }));
-    if (text) UI().appendMessage('user', text);
+    if (text) {
+      UI().appendMessage('user', text);
+      appendToHistoryCache(activeThreadId, 'user', text);
+    }
     if (uploads && uploads.length) {
       UI().appendMessage('user', '', uploads);
+      appendToHistoryCache(activeThreadId, 'user', '', uploads);
     }
   }
 

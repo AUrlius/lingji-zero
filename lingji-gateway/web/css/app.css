@@ -630,3 +630,21 @@ body {
   #btnSend { padding: 10px 12px; }
   .msg { font-size: 14px; }
 }
+
+.lingji-files {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.lf-id-chip {
+  font-family: ui-monospace, monospace;
+  font-size: 12px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border, #444);
+  background: var(--bg-secondary, #1e1e1e);
+  color: var(--accent, #6eb6ff);
+  cursor: pointer;
+}

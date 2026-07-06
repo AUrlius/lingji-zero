@@ -38,13 +38,12 @@ func (a *AgentsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	type agentEntry struct {
-		DeviceID string `json:"device_id"`
+		DeviceID    string `json:"device_id"`
+		DisplayName string `json:"display_name"`
 	}
 	agents := make([]agentEntry, 0)
-	for _, id := range a.hub.OnlineDevices() {
-		if IsAgentDevice(id) {
-			agents = append(agents, agentEntry{DeviceID: id})
-		}
+	for _, a := range a.hub.OnlineAgents() {
+		agents = append(agents, agentEntry{DeviceID: a.DeviceID, DisplayName: a.DisplayName})
 	}
 
 	w.Header().Set("Content-Type", "application/json")

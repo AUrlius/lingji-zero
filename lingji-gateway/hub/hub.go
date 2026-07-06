@@ -2,6 +2,7 @@ package hub
 
 import (
 	"log"
+	"strings"
 	"sync"
 	"time"
 
@@ -10,8 +11,9 @@ import (
 
 // Client 代表一个已连接的设备
 type Client struct {
-	DeviceID  string // Web: conn-* 连接 ID；Agent: lingji-*
-	UserID    string // Web: user-* 账号（多连接共享）；Agent 为空则同 DeviceID
+	DeviceID    string // Web: conn-* 连接 ID；Agent: lingji-*
+	UserID      string // Web: user-* 账号（多连接共享）；Agent 为空则同 DeviceID
+	DisplayName string // Agent 展示名（AUTH_REQ）
 	Conn      *websocket.Conn
 	Send      chan []byte
 	Hub       *Hub
@@ -245,6 +247,33 @@ func (c *Client) UpdateHeartbeat() {
 	c.mu.Lock()
 	c.LastBeat = time.Now()
 	c.mu.Unlock()
+}
+
+// OnlineAgents returns online agent devices with optional display names.
+func (h *Hub) OnlineAgents() []struct {
+	DeviceID    string
+	DisplayName string
+} {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	out := make([]struct {
+		DeviceID    string
+		DisplayName string
+	}, 0)
+	for id, c := range h.clients {
+		if !strings.HasPrefix(id, "lingji-") {
+			continue
+		}
+		dn := c.DisplayName
+		if dn == "" {
+			dn = id
+		}
+		out = append(out, struct {
+			DeviceID    string
+			DisplayName string
+		}{DeviceID: id, DisplayName: dn})
+	}
+	return out
 }
 
 // OnlineDevices 返回所有在线设备 ID 列表

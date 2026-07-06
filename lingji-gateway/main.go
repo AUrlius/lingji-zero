@@ -36,12 +36,18 @@ func main() {
 	}
 	defer inboxStore.Close()
 
+	fileRegistry, err := store.NewFileRegistryFromDB(inboxStore.DB())
+	if err != nil {
+		log.Fatalf("[Gateway] file registry 打开失败: %v", err)
+	}
+
 	// 创建 WS 处理器
-	fleetHandler := handler.NewFleetHandler(h, cfg, q, inboxStore)
+	fleetHandler := handler.NewFleetHandler(h, cfg, q, inboxStore, fileRegistry)
 	wsHandler := handler.NewWSHandler(h, cfg, q, inboxStore, fleetHandler)
 	agentsHandler := handler.NewAgentsHandler(h, cfg)
 	filesHandler := handler.NewFilesHandler(cfg)
 	inboxHandler := handler.NewInboxHandler(cfg, inboxStore)
+	fileRegHandler := handler.NewFileRegistryHandler(cfg, fileRegistry)
 
 	// H1 RunRegistry + WebSocket event stream
 	runWSHub := handler.NewRunWSHub()
@@ -59,6 +65,9 @@ func main() {
 	http.HandleFunc("GET /v1/inbox/threads", inboxHandler.HandleThreads)
 	http.HandleFunc("GET /v1/inbox/messages", inboxHandler.HandleMessages)
 	http.HandleFunc("POST /v1/fleet/transfer", fleetHandler.HandleTransfer)
+	http.HandleFunc("POST /v1/fleet/relay", fleetHandler.HandleRelay)
+	http.HandleFunc("POST /v1/files/registry", fileRegHandler.HandleRegister)
+	http.HandleFunc("GET /v1/files/registry", fileRegHandler.HandleGet)
 	http.Handle("/files", filesHandler)
 	http.Handle("/files/", filesHandler)
 	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
