@@ -144,7 +144,7 @@
       window.LingjiUI.scrollChatToBottom(true);
     },
 
-    renderSessionList: function (sessions, activeThreadId, onSelect) {
+    renderSessionList: function (sessions, activeThreadId, onSelect, agentLabelFn) {
       const list = el('sessionList');
       if (!list) return;
       list.innerHTML = '';
@@ -152,7 +152,16 @@
         const btn = document.createElement('button');
         btn.type = 'button';
         btn.className = 'session-item' + ((s.thread_id === activeThreadId || s.active) ? ' active' : '');
-        btn.textContent = s.title || '新对话';
+        const title = document.createElement('span');
+        title.className = 'session-title';
+        title.textContent = s.title || '新对话';
+        btn.appendChild(title);
+        if (s.agent_id && agentLabelFn) {
+          const badge = document.createElement('span');
+          badge.className = 'session-agent';
+          badge.textContent = agentLabelFn(s.agent_id);
+          btn.appendChild(badge);
+        }
         btn.addEventListener('click', function () {
           if (onSelect) onSelect(s.thread_id);
         });

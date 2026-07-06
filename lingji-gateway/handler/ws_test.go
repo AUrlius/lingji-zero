@@ -16,7 +16,7 @@ func TestDeliverDownstreamTargeted(t *testing.T) {
 	defer h.Stop()
 
 	q := queue.NewOfflineQueue(16)
-	ws := NewWSHandler(h, config.DefaultConfig(), q)
+	ws := NewWSHandler(h, config.DefaultConfig(), q, nil)
 
 	phoneA := make(chan []byte, 4)
 	phoneB := make(chan []byte, 4)
@@ -56,7 +56,7 @@ func TestDeliverDownstreamTargetUser(t *testing.T) {
 	defer h.Stop()
 
 	q := queue.NewOfflineQueue(16)
-	ws := NewWSHandler(h, config.DefaultConfig(), q)
+	ws := NewWSHandler(h, config.DefaultConfig(), q, nil)
 
 	chA := make(chan []byte, 4)
 	chB := make(chan []byte, 4)
@@ -93,7 +93,7 @@ func TestDeliverDownstreamBroadcastFallback(t *testing.T) {
 	defer h.Stop()
 
 	q := queue.NewOfflineQueue(16)
-	ws := NewWSHandler(h, config.DefaultConfig(), q)
+	ws := NewWSHandler(h, config.DefaultConfig(), q, nil)
 
 	phoneA := make(chan []byte, 4)
 	phoneB := make(chan []byte, 4)
@@ -124,7 +124,7 @@ func TestDeliverDownstreamOfflineQueue(t *testing.T) {
 	defer h.Stop()
 
 	q := queue.NewOfflineQueue(16)
-	ws := NewWSHandler(h, config.DefaultConfig(), q)
+	ws := NewWSHandler(h, config.DefaultConfig(), q, nil)
 
 	msg := protocol.NewMessage(protocol.MsgAgentRes, "lingji-pc", map[string]any{
 		"text":             "queued",
@@ -148,7 +148,7 @@ func TestRouteToTargetAgent(t *testing.T) {
 	defer h.Stop()
 
 	q := queue.NewOfflineQueue(16)
-	ws := NewWSHandler(h, config.DefaultConfig(), q)
+	ws := NewWSHandler(h, config.DefaultConfig(), q, nil)
 
 	pcCh := make(chan []byte, 4)
 	laptopCh := make(chan []byte, 4)
@@ -188,7 +188,7 @@ func TestRouteDefaultAgent(t *testing.T) {
 	defer h.Stop()
 
 	q := queue.NewOfflineQueue(16)
-	ws := NewWSHandler(h, config.DefaultConfig(), q)
+	ws := NewWSHandler(h, config.DefaultConfig(), q, nil)
 
 	pcCh := make(chan []byte, 4)
 	h.Register(&hub.Client{DeviceID: "lingji-pc", Send: pcCh, LastBeat: time.Now()})

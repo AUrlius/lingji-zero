@@ -17,6 +17,7 @@ type Config struct {
 	FileTTL          time.Duration // G6 临时文件 TTL（默认 1h）
 	FileMaxDownloads int           // G6 单链下载次数上限（默认 10）
 	FileStoreDir     string        // G6 临时文件目录
+	InboxDBPath      string        // Fleet Phase 2 inbox SQLite 路径
 }
 
 // DefaultConfig 返回默认配置 + 环境变量覆盖
@@ -31,7 +32,15 @@ func DefaultConfig() *Config {
 		FileTTL:          envDuration("LINGJI_FILE_TTL", time.Hour),
 		FileMaxDownloads: envInt("LINGJI_FILE_MAX_DOWNLOADS", 10),
 		FileStoreDir:     os.Getenv("LINGJI_FILE_STORE_DIR"),
+		InboxDBPath:      envString("LINGJI_INBOX_DB", "data/inbox.db"),
 	}
+}
+
+func envString(key, defaultVal string) string {
+	if s := os.Getenv(key); s != "" {
+		return s
+	}
+	return defaultVal
 }
 
 func envInt64(key string, defaultVal int64) int64 {

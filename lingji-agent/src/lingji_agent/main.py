@@ -208,7 +208,10 @@ async def main(config_path: str | None = None):
             message: str = "",
         ) -> None:
             """会话列表/切换：回填 history，并附带该 thread 的 pending HITL。"""
-            sessions = list_chat_sessions(db, user_id)
+            sessions = [
+                {**s, "agent_id": config.network.device_id}
+                for s in list_chat_sessions(db, user_id)
+            ]
             sw = next((s for s in sessions if s["thread_id"] == thread_id), None)
             switch_title = sw["title"] if sw else "会话"
             history = await _thread_ui_history(thread_id)
@@ -672,13 +675,17 @@ async def main(config_path: str | None = None):
                     attachments,
                     target_device_id=conn_id,
                     target_user_id=user_id,
+                    thread_id=thread_id,
                 )
                 _log_run_complete(pending)
             structlog.contextvars.unbind_contextvars("run_id", "device_id")
 
         async def on_cmd_list_sessions(msg: Message):
             conn_id, user_id = _resolve_web_client(msg)
-            sessions = list_chat_sessions(db, user_id)
+            sessions = [
+                {**s, "agent_id": config.network.device_id}
+                for s in list_chat_sessions(db, user_id)
+            ]
             active_tid = next(
                 (s["thread_id"] for s in sessions if s.get("active")),
                 None,

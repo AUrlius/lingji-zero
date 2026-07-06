@@ -146,7 +146,10 @@ body {
 }
 
 .session-item {
-  display: block;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   width: 100%;
   text-align: left;
   padding: 10px 12px;
@@ -157,11 +160,25 @@ body {
   color: var(--text-session);
   font-size: 14px;
   cursor: pointer;
+  touch-action: manipulation;
+  min-height: 44px;
+}
+
+.session-title {
+  flex: 1;
+  min-width: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  touch-action: manipulation;
-  min-height: 44px;
+}
+
+.session-agent {
+  flex-shrink: 0;
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: var(--bg-session-active);
+  color: var(--text-secondary);
 }
 
 .session-item.active {

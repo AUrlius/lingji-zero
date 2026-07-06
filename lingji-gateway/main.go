@@ -14,6 +14,7 @@ import (
 	"github.com/AUrlius/lingji-gateway/handler"
 	"github.com/AUrlius/lingji-gateway/hub"
 	"github.com/AUrlius/lingji-gateway/queue"
+	"github.com/AUrlius/lingji-gateway/store"
 )
 
 //go:embed web
@@ -29,10 +30,17 @@ func main() {
 	// 创建离线队列
 	q := queue.NewOfflineQueue(cfg.OfflineQueueSize)
 
+	inboxStore, err := store.OpenInboxStore(cfg.InboxDBPath)
+	if err != nil {
+		log.Fatalf("[Gateway] inbox DB 打开失败: %v", err)
+	}
+	defer inboxStore.Close()
+
 	// 创建 WS 处理器
-	wsHandler := handler.NewWSHandler(h, cfg, q)
+	wsHandler := handler.NewWSHandler(h, cfg, q, inboxStore)
 	agentsHandler := handler.NewAgentsHandler(h, cfg)
 	filesHandler := handler.NewFilesHandler(cfg)
+	inboxHandler := handler.NewInboxHandler(cfg, inboxStore)
 
 	// H1 RunRegistry + WebSocket event stream
 	runWSHub := handler.NewRunWSHub()
@@ -47,6 +55,8 @@ func main() {
 	// 注册路由
 	http.Handle("/ws", wsHandler)
 	http.Handle("/v1/agents", agentsHandler)
+	http.HandleFunc("GET /v1/inbox/threads", inboxHandler.HandleThreads)
+	http.HandleFunc("GET /v1/inbox/messages", inboxHandler.HandleMessages)
 	http.Handle("/files", filesHandler)
 	http.Handle("/files/", filesHandler)
 	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {

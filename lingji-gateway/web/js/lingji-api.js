@@ -117,9 +117,93 @@
     return 'lingji_history_v2_' + USER_ID + '_' + threadId;
   }
 
+  function agentLabel(agentId) {
+    return AGENT_LABELS[agentId] || agentId || 'Agent';
+  }
+
+  function sessionKey(s) {
+    return (s.thread_id || '') + '|' + (s.agent_id || selectedAgentId);
+  }
+
+  function mergeInboxSessions(agentSessions, inboxThreads) {
+    var map = {};
+    (inboxThreads || []).forEach(function (t) {
+      var s = {
+        thread_id: t.thread_id,
+        title: t.title || '新对话',
+        agent_id: t.agent_id,
+        updated_at: t.updated_at,
+        active: false,
+      };
+      map[sessionKey(s)] = s;
+    });
+    (agentSessions || []).forEach(function (s) {
+      var copy = Object.assign({}, s);
+      if (!copy.agent_id) copy.agent_id = selectedAgentId;
+      var key = sessionKey(copy);
+      map[key] = Object.assign(map[key] || {}, copy);
+    });
+    return Object.keys(map).map(function (k) { return map[k]; }).sort(function (a, b) {
+      return String(b.updated_at || '').localeCompare(String(a.updated_at || ''));
+    });
+  }
+
+  async function fetchInboxThreads() {
+    if (!GATEWAY_TOKEN) return [];
+    var base = getApiBase();
+    var url = base + '/v1/inbox/threads?user_id=' + encodeURIComponent(USER_ID)
+      + '&token=' + encodeURIComponent(GATEWAY_TOKEN);
+    try {
+      var resp = await fetch(url, {
+        headers: { Authorization: 'Bearer ' + GATEWAY_TOKEN },
+      });
+      if (!resp.ok) return [];
+      var data = await resp.json();
+      return Array.isArray(data.threads) ? data.threads : [];
+    } catch (e) {
+      return [];
+    }
+  }
+
+  async function fetchInboxMessages(threadId, agentId) {
+    if (!GATEWAY_TOKEN || !threadId || !agentId) return [];
+    var base = getApiBase();
+    var url = base + '/v1/inbox/messages?thread_id=' + encodeURIComponent(threadId)
+      + '&agent_id=' + encodeURIComponent(agentId)
+      + '&token=' + encodeURIComponent(GATEWAY_TOKEN);
+    try {
+      var resp = await fetch(url, {
+        headers: { Authorization: 'Bearer ' + GATEWAY_TOKEN },
+      });
+      if (!resp.ok) return [];
+      var data = await resp.json();
+      var msgs = Array.isArray(data.messages) ? data.messages : [];
+      return msgs.map(function (m) {
+        return {
+          role: m.role === 'user' ? 'user' : 'agent',
+          text: m.text || '',
+        };
+      });
+    } catch (e) {
+      return [];
+    }
+  }
+
+  function findSession(threadId) {
+    return sessions.find(function (s) { return s.thread_id === threadId; }) || null;
+  }
+
+  function setSelectedAgentId(agentId) {
+    selectedAgentId = agentId || DEFAULT_AGENT_ID;
+    try { localStorage.setItem(CACHE_TARGET_AGENT, selectedAgentId); } catch (e) {}
+    var sel = el('agentSelect');
+    if (sel && sel.value !== selectedAgentId) sel.value = selectedAgentId;
+  }
+
   function withUserId(payload) {
     var out = payload || {};
     if (!out.user_id) out.user_id = USER_ID;
+    if (!out.source) out.source = 'web';
     return out;
   }
 
@@ -237,19 +321,12 @@
     UI().appendSystem('已提交离线期间的审批，等待 Agent 处理…');
   }
 
-  function agentLabel(id) {
-    return AGENT_LABELS[id] || id;
-  }
-
   function getSelectedAgentId() {
     return selectedAgentId || DEFAULT_AGENT_ID;
   }
 
   function saveSelectedAgentId(id) {
-    selectedAgentId = id || DEFAULT_AGENT_ID;
-    try {
-      localStorage.setItem(CACHE_TARGET_AGENT, selectedAgentId);
-    } catch (e) {}
+    setSelectedAgentId(id);
   }
 
   function withTargetAgent(payload) {
@@ -333,7 +410,7 @@
 
   function applySessionPayload(p) {
     if (p.sessions) {
-      sessions = p.sessions;
+      sessions = mergeInboxSessions(p.sessions, sessions);
       if (p.thread_id) activeThreadId = p.thread_id;
       else {
         var active = sessions.find(function (s) { return s.active; });
@@ -358,14 +435,14 @@
 
   function renderSessionList(force) {
     var sig = sessions.map(function (s) {
-      return s.thread_id + ':' + (s.title || '') + ':' + (s.active ? '1' : '0');
+      return sessionKey(s) + ':' + (s.title || '') + ':' + (s.active ? '1' : '0');
     }).join('|');
     if (!force && sig === lastSessionListSig) {
       UI().updateSessionActiveClass(sessions, activeThreadId);
       return;
     }
     lastSessionListSig = sig;
-    UI().renderSessionList(sessions, activeThreadId, switchSession);
+    UI().renderSessionList(sessions, activeThreadId, switchSession, agentLabel);
   }
 
   function requestSessionList() {
@@ -414,6 +491,14 @@
   }
 
   function switchSession(threadId) {
+    if (!threadId) {
+      UI().closeSidebar();
+      return;
+    }
+    var sess = findSession(threadId);
+    if (sess && sess.agent_id) {
+      setSelectedAgentId(sess.agent_id);
+    }
     if (!threadId || threadId === activeThreadId) {
       UI().closeSidebar();
       return;
@@ -432,7 +517,15 @@
     UI().clearChat();
     UI().appendSystem('正在加载会话…');
     UI().updateSessionActiveClass(sessions, activeThreadId);
-    sendSessionSwitch(threadId);
+
+    var agentId = (sess && sess.agent_id) || selectedAgentId;
+    fetchInboxMessages(threadId, agentId).then(function (history) {
+      if (history.length) {
+        saveHistoryCache(threadId, history);
+        UI().renderHistory(history);
+      }
+      sendSessionSwitch(threadId);
+    });
     UI().closeSidebar();
   }
 
@@ -440,6 +533,13 @@
     refreshOnlineAgents();
     flushHitlResQueue();
     notifyClientIdMigrationOnce();
+    fetchInboxThreads().then(function (inboxThreads) {
+      if (inboxThreads.length) {
+        sessions = mergeInboxSessions(sessions, inboxThreads);
+        saveSessionsCache();
+        renderSessionList(true);
+      }
+    });
     if (pendingSwitchThreadId) {
       var tid = pendingSwitchThreadId;
       pendingSwitchThreadId = null;
@@ -701,6 +801,8 @@
       payload.new_session = true;
       pendingNewSession = false;
       activeThreadId = null;
+    } else if (activeThreadId) {
+      payload.thread_id = activeThreadId;
     }
     ws.send(JSON.stringify({
       msg_id: 'msg-' + (++msgId),
@@ -737,7 +839,7 @@
     var agentSelect = el('agentSelect');
     if (agentSelect) {
       agentSelect.addEventListener('change', function () {
-        saveSelectedAgentId(agentSelect.value);
+        setSelectedAgentId(agentSelect.value);
         if (isOnline()) {
           requestSessionList();
         }
