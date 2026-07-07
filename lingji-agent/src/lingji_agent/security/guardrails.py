@@ -156,7 +156,9 @@ class SecurityGuardrail:
         combined = f"{user_input}\n{context}".strip()
         ops_transfer = _is_ops_file_transfer(user_input)
 
-        hit = _inspect_text(self._inj_rules, combined)
+        # 运维传文件：inj.* 仅查用户输入（semantic 记忆常含历史注入样例）
+        inj_target = user_input if ops_transfer else combined
+        hit = _inspect_text(self._inj_rules, inj_target)
         if hit:
             return hit
 
