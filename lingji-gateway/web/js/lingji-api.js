@@ -78,14 +78,14 @@
   })();
 
   var CACHE_SESSIONS = 'lingji_sessions_v2_' + USER_ID;
-  var CACHE_ACTIVE = 'lingji_active_v2_' + USER_ID;
+  var CACHE_ACTIVE_PREFIX = 'lingji_active_v3_' + USER_ID + '_';
   var CACHE_HITL_QUEUE = 'lingji_hitl_res_queue_v1_' + USER_ID;
   var CACHE_TARGET_AGENT = 'lingji_target_agent_id';
 
   var DEFAULT_AGENT_ID = 'lingji-pc';
   var AGENT_LABELS = {
-    'lingji-pc': 'Primary PC',
-    'lingji-laptop': 'Laptop',
+    'lingji-pc': '青铜剑',
+    'lingji-laptop': '空城记',
   };
 
   var DEBUG_UI = new URLSearchParams(location.search).has('debug');
@@ -113,8 +113,51 @@
     return ws && ws.readyState === WebSocket.OPEN && authenticated;
   }
 
-  function historyCacheKey(threadId) {
-    return 'lingji_history_v2_' + USER_ID + '_' + threadId;
+  function historyCacheKey(threadId, agentId) {
+    var aid = agentId || getSelectedAgentId();
+    return 'lingji_history_v3_' + USER_ID + '_' + aid + '_' + threadId;
+  }
+
+  function activeCacheKey(agentId) {
+    return CACHE_ACTIVE_PREFIX + (agentId || getSelectedAgentId());
+  }
+
+  function saveActiveThreadForAgent(agentId, threadId) {
+    if (!agentId) return;
+    try {
+      if (threadId) {
+        localStorage.setItem(activeCacheKey(agentId), threadId);
+      } else {
+        localStorage.removeItem(activeCacheKey(agentId));
+      }
+    } catch (e) {}
+  }
+
+  function loadActiveThreadForAgent(agentId) {
+    try {
+      return localStorage.getItem(activeCacheKey(agentId)) || null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function mergeHistoryPreferLonger(localHist, serverHist) {
+    var local = localHist || [];
+    var server = serverHist || [];
+    if (server.length > local.length) return server;
+    return local;
+  }
+
+  function enrichHistoryFromInbox(threadId, agentId, currentHist) {
+    if (!threadId || !agentId) return Promise.resolve(currentHist || []);
+    return fetchInboxMessages(threadId, agentId).then(function (inboxHist) {
+      var merged = mergeHistoryPreferLonger(currentHist, inboxHist);
+      if (merged.length) {
+        saveHistoryCache(threadId, merged, agentId);
+        UI().renderHistory(merged);
+      }
+      return merged;
+    });
   }
 
   function agentLabel(agentId) {
@@ -212,9 +255,7 @@
   function saveSessionsCache() {
     try {
       localStorage.setItem(CACHE_SESSIONS, JSON.stringify(sessions));
-      if (activeThreadId) {
-        localStorage.setItem(CACHE_ACTIVE, activeThreadId);
-      }
+      saveActiveThreadForAgent(getSelectedAgentId(), activeThreadId);
     } catch (e) {}
   }
 
@@ -223,25 +264,27 @@
       var raw = localStorage.getItem(CACHE_SESSIONS);
       if (!raw) return false;
       sessions = JSON.parse(raw);
-      activeThreadId = localStorage.getItem(CACHE_ACTIVE) || null;
+      activeThreadId = loadActiveThreadForAgent(selectedAgentId);
       return sessions.length > 0;
     } catch (e) {
       return false;
     }
   }
 
-  function saveHistoryCache(threadId, history) {
+  function saveHistoryCache(threadId, history, agentId) {
     if (!threadId || !Array.isArray(history)) return;
     try {
-      localStorage.setItem(historyCacheKey(threadId), JSON.stringify(history));
+      localStorage.setItem(historyCacheKey(threadId, agentId), JSON.stringify(history));
     } catch (e) {}
   }
 
-  function loadHistoryCache(threadId) {
+  function loadHistoryCache(threadId, agentId) {
     if (!threadId) return null;
     try {
-      var raw = localStorage.getItem(historyCacheKey(threadId));
-      return raw ? JSON.parse(raw) : null;
+      var raw = localStorage.getItem(historyCacheKey(threadId, agentId));
+      if (raw) return JSON.parse(raw);
+      var legacy = localStorage.getItem('lingji_history_v2_' + USER_ID + '_' + threadId);
+      return legacy ? JSON.parse(legacy) : null;
     } catch (e) {
       return null;
     }
@@ -251,7 +294,7 @@
     if (!loadSessionsCache()) return;
     renderSessionList(true);
     if (activeThreadId) {
-      var history = loadHistoryCache(activeThreadId);
+      var history = loadHistoryCache(activeThreadId, selectedAgentId);
       if (history && history.length) {
         UI().renderHistory(history);
         UI().appendSystem('已加载本地缓存，连接后将与服务器同步');
@@ -424,8 +467,12 @@
       renderSessionList();
     }
     if (Array.isArray(p.history) && activeThreadId) {
-      saveHistoryCache(activeThreadId, p.history);
-      UI().renderHistory(p.history);
+      var agentId = getSelectedAgentId();
+      var localHist = loadHistoryCache(activeThreadId, agentId) || [];
+      var merged = mergeHistoryPreferLonger(localHist, p.history);
+      saveHistoryCache(activeThreadId, merged, agentId);
+      UI().renderHistory(merged);
+      enrichHistoryFromInbox(activeThreadId, agentId, merged);
     }
     if (p.pending_hitl) {
       showHitlRequest(p.pending_hitl);
@@ -483,7 +530,7 @@
     pendingNewSession = false;
     saveSessionsCache();
     UI().clearChat();
-    var history = loadHistoryCache(threadId);
+    var history = loadHistoryCache(threadId, (sess && sess.agent_id) || selectedAgentId);
     if (history && history.length) {
       UI().renderHistory(history);
       UI().appendSystem(message || '离线浏览缓存，连接恢复后将同步');
@@ -523,10 +570,12 @@
     UI().updateSessionActiveClass(sessions, activeThreadId);
 
     var agentId = (sess && sess.agent_id) || selectedAgentId;
-    fetchInboxMessages(threadId, agentId).then(function (history) {
-      if (history.length) {
-        saveHistoryCache(threadId, history);
-        UI().renderHistory(history);
+    fetchInboxMessages(threadId, agentId).then(function (inboxHist) {
+      var local = loadHistoryCache(threadId, agentId) || [];
+      var merged = mergeHistoryPreferLonger(local, inboxHist);
+      if (merged.length) {
+        saveHistoryCache(threadId, merged, agentId);
+        UI().renderHistory(merged);
       }
       sendSessionSwitch(threadId);
     });
@@ -535,14 +584,15 @@
 
   function appendToHistoryCache(threadId, role, text, attachments, lingjiFiles) {
     if (!threadId) return;
-    var history = loadHistoryCache(threadId) || [];
+    var agentId = getSelectedAgentId();
+    var history = loadHistoryCache(threadId, agentId) || [];
     history.push({
       role: role,
       text: text || '',
       attachments: attachments || [],
       lingji_files: lingjiFiles || [],
     });
-    saveHistoryCache(threadId, history);
+    saveHistoryCache(threadId, history, agentId);
   }
 
   function onConnected() {
@@ -570,10 +620,12 @@
     if (activeThreadId) {
       var sess = findSession(activeThreadId);
       var agentId = (sess && sess.agent_id) || selectedAgentId;
-      fetchInboxMessages(activeThreadId, agentId).then(function (history) {
-        if (history.length) {
-          saveHistoryCache(activeThreadId, history);
-          UI().renderHistory(history);
+      fetchInboxMessages(activeThreadId, agentId).then(function (inboxHist) {
+        var local = loadHistoryCache(activeThreadId, agentId) || [];
+        var merged = mergeHistoryPreferLonger(local, inboxHist);
+        if (merged.length) {
+          saveHistoryCache(activeThreadId, merged, agentId);
+          UI().renderHistory(merged);
         }
       });
     }
@@ -590,7 +642,7 @@
     UI().closeSidebar();
     UI().focusInput();
     try {
-      localStorage.removeItem(CACHE_ACTIVE);
+      saveActiveThreadForAgent(getSelectedAgentId(), null);
     } catch (e) {}
   }
 
@@ -875,9 +927,21 @@
     var agentSelect = el('agentSelect');
     if (agentSelect) {
       agentSelect.addEventListener('change', function () {
+        var prevAgent = getSelectedAgentId();
+        saveActiveThreadForAgent(prevAgent, activeThreadId);
         setSelectedAgentId(agentSelect.value);
+        activeThreadId = loadActiveThreadForAgent(getSelectedAgentId());
+        UI().clearChat();
+        if (activeThreadId) {
+          var cached = loadHistoryCache(activeThreadId, getSelectedAgentId());
+          if (cached && cached.length) {
+            UI().renderHistory(cached);
+          }
+        }
         if (isOnline()) {
           requestSessionList();
+        } else {
+          UI().appendSystem('已切换到 ' + agentLabel(getSelectedAgentId()));
         }
       });
     }

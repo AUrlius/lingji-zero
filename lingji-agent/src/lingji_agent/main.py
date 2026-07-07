@@ -252,6 +252,12 @@ async def main(config_path: str | None = None):
                     continue
                 dn = agent.get("display_name") or did
                 lines.append(f"- {did}（{dn}）")
+            lines.append("")
+            lines.append(
+                "常用别名：青铜剑/主PC/Primary PC → lingji-pc；"
+                "空城记/笔记本/Laptop → lingji-laptop。"
+                "fleet_send_file / relay_file_by_id 的 to_agent_id 可直接填别名。"
+            )
             return "\n".join(lines)
 
         def _command_context_from_payload(payload: dict) -> str:
