@@ -16,6 +16,7 @@ async def request_fleet_transfer(
     to_user_id: str = "",
     thread_id: str = "",
     user_id: str = "",
+    job_id: str = "",
     uploads: list[dict],
     host: str | None = None,
     port: int | None = None,
@@ -36,6 +37,7 @@ async def request_fleet_transfer(
         "to_user_id": to_user_id,
         "thread_id": thread_id,
         "user_id": user_id or to_user_id,
+        "job_id": job_id,
         "uploads": uploads,
     }
     headers: dict[str, str] = {"Content-Type": "application/json"}

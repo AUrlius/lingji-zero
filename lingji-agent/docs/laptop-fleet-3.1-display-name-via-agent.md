@@ -2,7 +2,9 @@
 
 > **范围**：仅 **空城记（lingji-laptop）**。  
 > **青铜剑（lingji-pc）** 的命名由本机 **Hermes** 单独完成，本文档不包含。  
-> **目的**：用灵机自身能力完成配置 + 拉代码 + 重启，顺带验收 Fleet 传文件与自然语言运维。  
+> **默认路径（Tier 0）**：**§三 Hermes 兜底** — 运维 playbook 优先 Hermes 直执行，稳定、无连环 HITL。  
+> **可选路径（Tier 1 / 能力演示）**：§一–§二 浏览器 → 空城记 Agent — 验收「灵机自我运维」，易卡在 HITL 链，非日常推荐。  
+> **远期**：Fleet 4.0 Job 工作流见 [fleet-4.0-job-workflow.md](./fleet-4.0-job-workflow.md)。  
 > **版本基线**：空城记本地若仍停在 **`c89a95d`**，必须先 **`git pull` 到 `e82b5f1` 或更新** 再重启 Agent；仅改 `display_name` 而不升级代码，Web 会话切换修复（v0.1.6）不会生效。
 
 ---

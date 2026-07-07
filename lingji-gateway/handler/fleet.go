@@ -22,6 +22,7 @@ type fleetTransferRequest struct {
 	ToUserID    string           `json:"to_user_id"`
 	ThreadID    string           `json:"thread_id"`
 	UserID      string           `json:"user_id"`
+	JobID       string           `json:"job_id"`
 	Uploads     []map[string]any `json:"uploads"`
 }
 
@@ -30,6 +31,7 @@ type pendingTransfer struct {
 	ToAgentID   string
 	UserID      string
 	ThreadID    string
+	JobID       string
 	Uploads     []map[string]any
 }
 
@@ -40,17 +42,19 @@ type FleetHandler struct {
 	queue    *queue.OfflineQueue
 	inbox    *store.InboxStore
 	registry *store.FileRegistryStore
+	jobs     *store.JobStore
 	pending  map[string]*pendingTransfer
 	pendingMu sync.RWMutex
 }
 
-func NewFleetHandler(h *hub.Hub, cfg *config.Config, q *queue.OfflineQueue, inbox *store.InboxStore, registry *store.FileRegistryStore) *FleetHandler {
+func NewFleetHandler(h *hub.Hub, cfg *config.Config, q *queue.OfflineQueue, inbox *store.InboxStore, registry *store.FileRegistryStore, jobs *store.JobStore) *FleetHandler {
 	return &FleetHandler{
 		hub:      h,
 		config:   cfg,
 		queue:    q,
 		inbox:    inbox,
 		registry: registry,
+		jobs:     jobs,
 		pending:  make(map[string]*pendingTransfer),
 	}
 }
@@ -119,7 +123,7 @@ func (f *FleetHandler) HandleTransfer(w http.ResponseWriter, r *http.Request) {
 		}
 		DeliverDownstream(f.hub, f.queue, []byte(raw))
 		CaptureFleetTransfer(f.inbox, req.ThreadID, toUser, req.FromAgentID, summary)
-		f.writeJSON(w, http.StatusOK, map[string]any{
+	writeJSON(w, http.StatusOK, map[string]any{
 			"transfer_id": transferID,
 			"status":      "delivered",
 			"to_user_id":  toUser,
@@ -133,9 +137,15 @@ func (f *FleetHandler) HandleTransfer(w http.ResponseWriter, r *http.Request) {
 		ToAgentID:   toAgent,
 		UserID:      req.UserID,
 		ThreadID:    req.ThreadID,
+		JobID:       strings.TrimSpace(req.JobID),
 		Uploads:     req.Uploads,
 	}
 	f.pendingMu.Unlock()
+
+	if f.jobs != nil && req.JobID != "" {
+		_ = f.jobs.LinkTransfer(transferID, req.JobID, req.JobID+"-S3")
+		_ = f.jobs.OnTransferStarted(req.JobID, transferID)
+	}
 
 	deliver := protocol.NewMessage(protocol.MsgFleetDeliver, "gateway", map[string]any{
 		"transfer_id":   transferID,
@@ -172,10 +182,11 @@ func (f *FleetHandler) HandleTransfer(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	f.writeJSON(w, http.StatusOK, map[string]any{
+	writeJSON(w, http.StatusOK, map[string]any{
 		"transfer_id":  transferID,
 		"status":       status,
 		"to_agent_id":  toAgent,
+		"job_id":       strings.TrimSpace(req.JobID),
 	})
 }
 
@@ -254,6 +265,28 @@ func (f *FleetHandler) HandleAck(fromDevice string, raw []byte) {
 		agentID = fromDevice
 	}
 	CaptureFleetTransfer(f.inbox, threadID, userID, agentID, summary)
+
+	if f.jobs != nil && transferID != "" {
+		evidence := map[string]any{
+			"transfer_id": transferID,
+			"status":      status,
+		}
+		if saved, ok := p["saved"].([]any); ok {
+			evidence["saved"] = saved
+		}
+		if job, jobSummary, err := f.jobs.OnTransferAck(transferID, status, evidence); err == nil && jobSummary != "" && userID != "" {
+			jobReply := protocol.NewMessage(protocol.MsgAgentRes, "gateway", map[string]any{
+				"text":           jobSummary,
+				"target_user_id": userID,
+				"thread_id":      threadID,
+				"job_id":         job.JobID,
+				"job_status":     job.Status,
+			})
+			if data, err := jobReply.ToJSON(); err == nil {
+				DeliverDownstream(f.hub, f.queue, []byte(data))
+			}
+		}
+	}
 }
 
 func (f *FleetHandler) buildUserDelivery(fromAgent, toUser string, uploads []map[string]any) (string, []map[string]any) {
@@ -390,17 +423,11 @@ func (f *FleetHandler) HandleRelay(w http.ResponseWriter, r *http.Request) {
 		f.queue.Enqueue(holder, raw)
 		status = "queued"
 	}
-	f.writeJSON(w, http.StatusOK, map[string]any{
+	writeJSON(w, http.StatusOK, map[string]any{
 		"status":          status,
 		"lingji_file_id":  req.LingjiFileID,
 		"holder_agent_id": holder,
 	})
-}
-
-func (f *FleetHandler) writeJSON(w http.ResponseWriter, code int, v any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(code)
-	_ = json.NewEncoder(w).Encode(v)
 }
 
 // DeliverDownstream fans out AGENT_RES / HITL_REQ to target_user_id or target_device_id.

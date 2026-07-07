@@ -46,14 +46,20 @@ func main() {
 		log.Fatalf("[Gateway] hitl pending 打开失败: %v", err)
 	}
 
+	jobStore, err := store.NewJobStoreFromDB(inboxStore.DB())
+	if err != nil {
+		log.Fatalf("[Gateway] job store 打开失败: %v", err)
+	}
+
 	// 创建 WS 处理器
-	fleetHandler := handler.NewFleetHandler(h, cfg, q, inboxStore, fileRegistry)
+	fleetHandler := handler.NewFleetHandler(h, cfg, q, inboxStore, fileRegistry, jobStore)
 	wsHandler := handler.NewWSHandler(h, cfg, q, inboxStore, hitlStore, fleetHandler)
 	agentsHandler := handler.NewAgentsHandler(h, cfg)
 	filesHandler := handler.NewFilesHandler(cfg)
 	inboxHandler := handler.NewInboxHandler(cfg, inboxStore)
 	fileRegHandler := handler.NewFileRegistryHandler(cfg, fileRegistry)
 	hitlHandler := handler.NewHitlHandler(cfg, hitlStore)
+	jobsHandler := handler.NewJobsHandler(cfg, jobStore)
 
 	// H1 RunRegistry + WebSocket event stream
 	runWSHub := handler.NewRunWSHub()
@@ -72,6 +78,8 @@ func main() {
 	http.HandleFunc("GET /v1/inbox/messages", inboxHandler.HandleMessages)
 	http.HandleFunc("POST /v1/fleet/transfer", fleetHandler.HandleTransfer)
 	http.HandleFunc("POST /v1/fleet/relay", fleetHandler.HandleRelay)
+	http.HandleFunc("POST /v1/jobs", jobsHandler.HandleCreate)
+	http.HandleFunc("GET /v1/jobs/{job_id}", jobsHandler.HandleGet)
 	http.HandleFunc("POST /v1/files/registry", fileRegHandler.HandleRegister)
 	http.HandleFunc("GET /v1/files/registry", fileRegHandler.HandleGet)
 	http.HandleFunc("GET /v1/hitl/pending", hitlHandler.HandlePending)

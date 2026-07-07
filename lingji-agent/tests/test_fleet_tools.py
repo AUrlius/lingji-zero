@@ -54,6 +54,7 @@ class TestFleetSendFile:
             return_value={"transfer_id": "xfer-1", "status": "pending", "to_agent_id": "lingji-pc"},
         )
         mock_register = AsyncMock(return_value={"lingji_file_id": "LF-TEST01"})
+        mock_job = AsyncMock(return_value={"job_id": "LJ-TEST01", "status": "planned"})
         with (
             patch(
                 "lingji_agent.execution.tools.fleet_tools.upload_file_to_gateway",
@@ -66,6 +67,10 @@ class TestFleetSendFile:
             patch(
                 "lingji_agent.execution.tools.fleet_tools.register_lingji_file",
                 mock_register,
+            ),
+            patch(
+                "lingji_agent.execution.tools.fleet_tools.create_fleet_file_job",
+                mock_job,
             ),
             patch(
                 "lingji_agent.execution.tools.fleet_tools.fetch_online_agents",
@@ -81,10 +86,12 @@ class TestFleetSendFile:
 
         assert result.get("status") == "pending"
         assert result.get("transfer_id") == "xfer-1"
+        assert result.get("job_id") == "LJ-TEST01"
         mock_transfer.assert_awaited_once()
         call_kwargs = mock_transfer.await_args.kwargs
         assert call_kwargs["to_agent_id"] == "lingji-pc"
         assert call_kwargs["user_id"] == "user-abc"
+        assert call_kwargs["job_id"] == "LJ-TEST01"
 
     @pytest.mark.asyncio
     async def test_transfer_to_user_returns_attachments(self, tmp_path):

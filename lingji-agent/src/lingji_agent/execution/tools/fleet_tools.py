@@ -16,6 +16,7 @@ from lingji_agent.network.file_registry_client import register_lingji_file, requ
 from lingji_agent.network.file_upload import DEFAULT_MAX_BYTES, upload_file_to_gateway
 from lingji_agent.network.fleet_client import request_fleet_transfer
 from lingji_agent.network.fleet_resolve import fetch_online_agents, resolve_agent_id
+from lingji_agent.network.job_client import create_fleet_file_job
 
 
 def _local_agent_id() -> str:
@@ -42,6 +43,16 @@ async def _resolve_to_agent(raw: str) -> str:
         local_aliases=_local_aliases(),
         remote_agents=agents,
     )
+
+
+async def _display_name_for(agent_id: str) -> str:
+    agents = await fetch_online_agents()
+    for a in agents:
+        if a.get("device_id") == agent_id:
+            return a.get("display_name") or agent_id
+    if agent_id == _local_agent_id():
+        return _local_display_name() or agent_id
+    return agent_id
 
 
 async def _upload_and_attachment(path: Path, display_name: str | None = None) -> dict:
@@ -143,13 +154,31 @@ async def fleet_send_file(
     lf_id = reg.get("lingji_file_id", "")
     lingji_files = [{"lingji_file_id": lf_id, "name": attachment["name"]}] if lf_id else []
 
+    fleet_job_id = ""
+    effective_user = user_id or to_user
+    if to_agent and effective_user:
+        job = await create_fleet_file_job(
+            user_id=effective_user,
+            sender_agent_id=from_agent,
+            receiver_agent_id=to_agent,
+            file_hint=attachment.get("name", ""),
+            intent=f"传文件 {attachment.get('name', '')} → {to_agent}",
+            scheduler_agent_id=from_agent,
+            sender_display_name=await _display_name_for(from_agent),
+            receiver_display_name=await _display_name_for(to_agent),
+        )
+        if job.get("error"):
+            return job
+        fleet_job_id = job.get("job_id", "")
+
     transfer = await request_fleet_transfer(
         from_agent_id=from_agent,
         to_agent_id=to_agent,
         to_user_id=to_user,
         thread_id=thread_id,
-        user_id=user_id or to_user,
+        user_id=effective_user,
         uploads=[attachment],
+        job_id=fleet_job_id,
     )
     if transfer.get("error"):
         return transfer
@@ -161,12 +190,19 @@ async def fleet_send_file(
         f"已发起跨箱传输「{attachment['name']}」→ {dest}"
         f"（{status}，transfer_id={transfer_id}）"
     )
+    if fleet_job_id:
+        msg = (
+            f"{fleet_job_id} 已发起。"
+            f"传输「{attachment['name']}」→ {dest}（{status}）。"
+            f"接收确认后将自动推送结案消息。"
+        )
     if lf_id:
         msg += f"\n📎 灵机文件 ID：{lf_id}"
     out: dict[str, Any] = {
         "message": msg,
         "status": status,
         "transfer_id": transfer_id,
+        "job_id": fleet_job_id or transfer.get("job_id", ""),
         "to_agent_id": to_agent,
         "lingji_file_id": lf_id,
         "lingji_files": lingji_files,

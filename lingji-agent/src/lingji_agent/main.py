@@ -36,7 +36,7 @@ from lingji_agent.cognitive.orchestrator import (
 from lingji_agent.cognitive.session_history import load_thread_ui_history
 from lingji_agent.cognitive.prompt_manager import PromptManager
 from lingji_agent.execution.registry import registry
-from lingji_agent.execution.tools import fs_tools, sys_tools, file_tools, fleet_tools  # noqa: 触发 @registry.register
+from lingji_agent.execution.tools import fs_tools, sys_tools, file_tools, fleet_tools, job_tools  # noqa: 触发 @registry.register
 from lingji_agent.execution.hitl import (
     HITLManager,
     build_recovered_context,
@@ -534,14 +534,52 @@ async def main(config_path: str | None = None):
                 _schedule_hitl_watchdog(task_id, session.get("created_at"))
             return pending
 
-        async def _resume_from_hitl(task_id: str, decision: str) -> bool:
+        async def _notify_hitl_resume_lost(
+            task_id: str,
+            *,
+            target_device_id: str = "",
+            target_user_id: str = "",
+        ) -> None:
+            """HITL 批准无法 resume 时通知 Web（避免静默无下文）。"""
+            device_id = target_device_id
+            user_id = target_user_id
+            if not device_id and not user_id:
+                session = get_pending_hitl_session_by_task_id(db, task_id)
+                if session:
+                    ctx = build_recovered_context(
+                        session,
+                        default_device_id=config.network.device_id,
+                    )
+                    device_id = ctx.device_id
+                    if ctx.thread_id.startswith("user-"):
+                        user_id = ctx.thread_id.split(":", 1)[0]
+            short = f"{task_id[:12]}…" if len(task_id) > 12 else task_id
+            await _send_agent_reply(
+                f"⚠️ 审批（{short}）未能恢复执行：会话上下文已丢失"
+                "（可能 Agent 曾重启）。请重新发送指令。",
+                target_device_id=device_id,
+                target_user_id=user_id,
+            )
+
+        async def _resume_from_hitl(
+            task_id: str,
+            decision: str,
+            *,
+            hint_device_id: str = "",
+            hint_user_id: str = "",
+        ) -> bool:
             """恢复挂起的 graph；返回是否已发送 AGENT_RES（False 表示再次 interrupt 挂起）"""
             async with hitl_resume_lock:
                 _cancel_hitl_watchdog(task_id)
                 pending = await _ensure_pending_run(task_id)
                 if pending is None:
                     logger.warning("HITL resume 失败: task=%s 无 pending 上下文", task_id)
-                    return False
+                    await _notify_hitl_resume_lost(
+                        task_id,
+                        target_device_id=hint_device_id,
+                        target_user_id=hint_user_id,
+                    )
+                    return True
 
                 if not await _graph_has_interrupt(pending.thread_id):
                     logger.error(
@@ -1034,7 +1072,13 @@ async def main(config_path: str | None = None):
             decision = msg.payload.get("decision", "rejected")
             task_id = msg.payload.get("task_id", "")
             logger.info("HITL 审批: %s -> %s", task_id, decision)
-            await _resume_from_hitl(task_id, decision)
+            conn_id, user_id = _resolve_web_client(msg)
+            await _resume_from_hitl(
+                task_id,
+                decision,
+                hint_device_id=conn_id,
+                hint_user_id=user_id,
+            )
 
         router.register(MsgType.HITL_RES, on_hitl_res)
 
