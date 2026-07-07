@@ -12,11 +12,11 @@
 
 1. 浏览器打开 `https://lingji.mygoal.tech/?token=<你的token>`
 2. 右上角目标电脑选 **青铜剑**（或 Primary PC / `lingji-pc`）
-3. 发送（自然语言即可）：
+3. 发送（自然语言即可；**建议新开对话**，避免旧会话记忆触发 Guardrails 误拦）：
 
 ```text
 请用 fleet_send_file 把本机 WSL 路径下的部署文档发给空城记：
-~/lingji-zero/lingji-agent/docs/laptop-fleet-3.1-display-name-via-agent.md
+/mnt/e/LingjiPlan/LingjiZero/lingji-agent/docs/laptop-fleet-3.1-display-name-via-agent.md
 to_agent_id 填：空城记
 ```
 
@@ -202,6 +202,7 @@ python3 -m lingji_agent.main --stop && nohup python3 -m lingji_agent.main >> ~/.
 | `device_id` 变成 lingji-pc | **停止**，改回 `lingji-laptop` 再重启 |
 | `/v1/agents` 无 display_name | 确认 Gateway 已 deploy Phase 3.1+；Agent AUTH 已带 display_name |
 | HITL 批准条闪退 / 打字无效 | Gateway Web **v0.1.7+** 顶部 `#hitlDock` 常驻；必须点按钮，或打字「批准」触发自动映射 |
+| **安全策略拦截**（`fleet_send_file` 被误拦） | **新开一条对话**再发；确认 Agent 已 restart；日志见下方「查 Guardrails 日志」 |
 | 传文件仍不认「青铜剑」 | 确认青铜剑 Hermes 也已配置 display_name 并重启 |
 
 ---

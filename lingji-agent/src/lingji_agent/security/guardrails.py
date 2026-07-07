@@ -39,6 +39,28 @@ def _compile_pattern(rule_id: str, description: str, pattern: str) -> GuardrailR
     return GuardrailRule(rule_id=rule_id, description=description, match=match)
 
 
+def _is_ops_file_transfer(user_input: str) -> bool:
+    """用户明确请求 Fleet/本机文件推送时，放宽 HTTP 外泄规则（记忆误伤常见）。"""
+    lower = (user_input or "").lower()
+    return any(
+        token in lower
+        for token in ("fleet_send_file", "send_file_to_user", "relay_file_by_id")
+    )
+
+
+def _inspect_text(rules: list[GuardrailRule], text: str) -> GuardrailResult | None:
+    if not text.strip():
+        return None
+    for rule in rules:
+        if rule.match(text):
+            return GuardrailResult(
+                allowed=False,
+                reason=rule.description,
+                rule_id=rule.rule_id,
+            )
+    return None
+
+
 def default_guardrail_rules() -> list[GuardrailRule]:
     """内置 MVP 规则（确定性，无 ML）。"""
     return [
@@ -121,26 +143,43 @@ class SecurityGuardrail:
 
     def __init__(self, rules: list[GuardrailRule] | None = None):
         self._rules = rules if rules is not None else default_guardrail_rules()
+        self._inj_rules = [r for r in self._rules if r.rule_id.startswith("inj.")]
+        self._destruct_rules = [r for r in self._rules if r.rule_id.startswith("destruct.")]
+        self._exfil_rules = [r for r in self._rules if r.rule_id.startswith("exfil.")]
 
     def inspect(self, user_input: str, *, context: str = "") -> GuardrailResult:
-        combined = f"{user_input}\n{context}".strip()
-        if not combined:
+        user_input = user_input or ""
+        context = context or ""
+        if not user_input.strip() and not context.strip():
             return GuardrailResult(allowed=True)
 
-        for rule in self._rules:
-            if rule.match(combined):
-                return GuardrailResult(
-                    allowed=False,
-                    reason=rule.description,
-                    rule_id=rule.rule_id,
-                )
+        combined = f"{user_input}\n{context}".strip()
+        ops_transfer = _is_ops_file_transfer(user_input)
+
+        hit = _inspect_text(self._inj_rules, combined)
+        if hit:
+            return hit
+
+        hit = _inspect_text(self._destruct_rules, combined)
+        if hit:
+            return hit
+
+        exfil_rules = self._exfil_rules
+        if ops_transfer:
+            exfil_rules = [r for r in exfil_rules if r.rule_id != "exfil.http_exfiltration"]
+        hit = _inspect_text(exfil_rules, user_input)
+        if hit:
+            return hit
 
         return GuardrailResult(allowed=True)
 
     @staticmethod
     def block_message(result: GuardrailResult) -> str:
         """对用户可见的阻断文案（不泄露完整规则列表）。"""
+        rule_hint = result.rule_id or "unknown"
         return (
             "⚠️ 请求被安全策略拦截：检测到可能危害系统或泄露敏感信息的指令。"
-            "请修改请求后重试。若认为误拦，请联系管理员。"
+            "请修改请求后重试。"
+            "此为 Agent 自动安全策略（非权限不足）；"
+            f"可在 Agent 日志搜索 guardrail_blocked 查看规则编号（本次: {rule_hint}）。"
         )
