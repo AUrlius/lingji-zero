@@ -106,6 +106,8 @@
   var onlineAgents = [];
   var selectedAgentId = localStorage.getItem(CACHE_TARGET_AGENT) || DEFAULT_AGENT_ID;
   var hitlPollTimer = null;
+  var activityStaleTimer = null;
+  var ACTIVITY_STALE_MS = 90000;
 
   function el(id) {
     return document.getElementById(id);
@@ -304,6 +306,36 @@
     sendHitlDecision(item.task_id, 'approved', item.agent_id);
     UI().appendSystem('已根据「' + trimmed + '」自动提交批准（' + item.task_id + '）');
     return true;
+  }
+
+  function clearActivityStaleTimer() {
+    if (activityStaleTimer) {
+      clearTimeout(activityStaleTimer);
+      activityStaleTimer = null;
+    }
+  }
+
+  function scheduleActivityStaleTimer() {
+    clearActivityStaleTimer();
+    activityStaleTimer = setTimeout(function () {
+      var box = el('agentActivity');
+      if (box && box.classList.contains('visible')) {
+        UI().setAgentActivity('thinking', '', true);
+      }
+    }, ACTIVITY_STALE_MS);
+  }
+
+  function applyAgentActivity(p) {
+    if (!p || p.status !== 'activity') return;
+    if (!isForThisDevice(p)) return;
+    var phase = p.phase || 'idle';
+    if (phase === 'idle') {
+      clearActivityStaleTimer();
+      UI().setAgentActivity(null);
+      return;
+    }
+    UI().setAgentActivity(phase, p.detail || '', false);
+    scheduleActivityStaleTimer();
   }
 
   function agentLabel(agentId) {
@@ -896,6 +928,10 @@
         return;
       }
       if (!isForThisDevice(p)) return;
+      if (p.status === 'activity') {
+        applyAgentActivity(p);
+        return;
+      }
       if (p.status === 'sessions' || p.status === 'session_switched') {
         applySessionPayload(p);
         return;
@@ -983,6 +1019,8 @@
       ws.onclose = function () {
         stopHeartbeat();
         stopHitlPolling();
+        clearActivityStaleTimer();
+        UI().setAgentActivity(null);
         authenticated = false;
         finishSessionSwitch();
         renderAgentSelect();
@@ -1021,7 +1059,8 @@
     pendingUploads = [];
     refreshPendingUploads();
     if (!text && !uploads.length) return;
-    UI().appendSystem('已发送，正在保存到电脑…');
+    UI().setAgentActivity('thinking');
+    scheduleActivityStaleTimer();
     await sendPayload(text, uploads);
     UI().clearInput();
     UI().focusInput();

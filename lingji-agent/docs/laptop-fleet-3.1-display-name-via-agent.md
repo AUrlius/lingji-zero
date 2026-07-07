@@ -207,5 +207,30 @@ python3 -m lingji_agent.main --stop && nohup python3 -m lingji_agent.main >> ~/.
 
 ---
 
+## 查 Guardrails 日志
+
+Agent **默认不写** `~/.lingji/agent.log`（该目录只有 checkpoint / 记忆库）。
+
+| 启动方式 | 日志位置 |
+|----------|----------|
+| `./scripts/restart-agent-wsl.sh`（推荐） | **`/tmp/lingji-agent.log`** |
+| 文档里的 `nohup ... >> ~/.lingji/agent.log` | 需先 `mkdir -p ~/.lingji`，否则无文件 |
+
+**WSL 查拦截记录：**
+
+```bash
+grep guardrail_blocked /tmp/lingji-agent.log | tail -5
+# 若为空，先重启 Agent 再复现一次：
+cd /mnt/e/LingjiPlan/LingjiZero && ./scripts/restart-agent-wsl.sh
+```
+
+**Windows PowerShell** 没有 `grep`，请用 WSL 包一层：
+
+```powershell
+wsl grep guardrail_blocked /tmp/lingji-agent.log
+```
+
+---
+
 **文档版本**：Fleet 3.1 · 2026-07-07  
 **仓库路径**：`lingji-agent/docs/laptop-fleet-3.1-display-name-via-agent.md`

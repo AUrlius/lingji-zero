@@ -377,8 +377,60 @@ async def main(config_path: str | None = None):
                     )
                     await client.send(hitl_msg)
                     logger.info("已发送 HITL_REQ: task=%s", task_id)
+                    await _send_activity(
+                        "waiting_hitl",
+                        detail=payload.get("tool", "") or "",
+                        target_device_id=pending.device_id,
+                        target_user_id=pending.user_id or pending.device_id,
+                        thread_id=pending.thread_id,
+                    )
                 _cancel_hitl_watchdog(task_id)
                 _schedule_hitl_watchdog(task_id)
+
+        async def _send_activity(
+            phase: str,
+            *,
+            detail: str = "",
+            target_device_id: str = "",
+            target_user_id: str = "",
+            thread_id: str = "",
+            run_id: str = "",
+        ) -> None:
+            if not target_user_id and not target_device_id:
+                return
+            extra: dict = {
+                "status": "activity",
+                "phase": phase,
+                "detail": detail or "",
+            }
+            if thread_id:
+                extra["thread_id"] = thread_id
+            if run_id:
+                extra["run_id"] = run_id
+            await _send_agent_reply(
+                "",
+                target_device_id=target_device_id,
+                target_user_id=target_user_id,
+                **extra,
+            )
+
+        def _make_activity_reporter(
+            conn_id: str,
+            user_id: str,
+            thread_id: str,
+            run_id: str,
+        ):
+            async def report(phase: str, detail: str = "") -> None:
+                await _send_activity(
+                    phase,
+                    detail=detail,
+                    target_device_id=conn_id,
+                    target_user_id=user_id,
+                    thread_id=thread_id,
+                    run_id=run_id,
+                )
+
+            return report
 
         async def _send_agent_reply(
             reply_text: str,
@@ -508,6 +560,15 @@ async def main(config_path: str | None = None):
                 hitl_mgr.resolve_interrupt(task_id, decision)
                 pending_runs.pop(task_id, None)
 
+                resume_run_id = str(uuid.uuid4())
+                activity = _make_activity_reporter(
+                    pending.device_id,
+                    _pending_user_id(pending),
+                    pending.thread_id,
+                    resume_run_id,
+                )
+                await activity("thinking")
+
                 run_config = build_run_config(
                     thread_id=pending.thread_id,
                     connector=connector,
@@ -515,6 +576,7 @@ async def main(config_path: str | None = None):
                     hitl_manager=hitl_mgr,
                     sanitizer_force_docker=config.security.sanitizer_force_docker,
                     user_id=_pending_user_id(pending),
+                    activity_reporter=activity,
                 )
 
                 try:
@@ -533,6 +595,7 @@ async def main(config_path: str | None = None):
                         target_device_id=pending.device_id,
                         target_user_id=_pending_user_id(pending),
                     )
+                    await activity("idle")
                     _log_run_complete(pending)
                     return True
                 except Exception as e:
@@ -543,6 +606,7 @@ async def main(config_path: str | None = None):
                         target_device_id=pending.device_id,
                         target_user_id=_pending_user_id(pending),
                     )
+                    await activity("idle")
                     _log_run_complete(pending)
                     return True
 
@@ -686,8 +750,12 @@ async def main(config_path: str | None = None):
                     structlog.contextvars.unbind_contextvars("run_id", "device_id")
                     return
 
+                activity = _make_activity_reporter(conn_id, user_id, thread_id, run_id)
+
                 if memory_warmup and not memory_warmup.done():
                     await memory_warmup
+
+                await activity("thinking")
 
                 retrieved_context = memory_mgr.retrieve_context(
                     user_text,
@@ -719,6 +787,7 @@ async def main(config_path: str | None = None):
                                 target_device_id=conn_id,
                             target_user_id=user_id,
                             )
+                            await activity("idle")
                             structlog.contextvars.unbind_contextvars("run_id", "device_id")
                             return
 
@@ -749,6 +818,7 @@ async def main(config_path: str | None = None):
                         hitl_manager=hitl_mgr,
                         sanitizer_force_docker=config.security.sanitizer_force_docker,
                         continue_thread=continue_thread,
+                        activity_reporter=activity,
                     )
                     if has_interrupt(result):
                         await _send_hitl_requests(result, pending)
@@ -769,6 +839,7 @@ async def main(config_path: str | None = None):
                     target_user_id=user_id,
                     thread_id=thread_id,
                 )
+                await activity("idle")
                 _log_run_complete(pending)
             structlog.contextvars.unbind_contextvars("run_id", "device_id")
 

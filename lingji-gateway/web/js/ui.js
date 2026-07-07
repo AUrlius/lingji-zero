@@ -270,6 +270,35 @@
       if (!s) return;
       s.textContent = text;
       s.className = on ? 'status' : 'status off';
+      if (!on) {
+        window.LingjiUI.setAgentActivity(null);
+      }
+    },
+
+    setAgentActivity: function (phase, detail, stale) {
+      const box = el('agentActivity');
+      const label = el('agentActivityLabel');
+      if (!box || !label) return;
+      if (!phase || phase === 'idle') {
+        box.hidden = true;
+        box.classList.remove('visible', 'stale');
+        label.textContent = '';
+        return;
+      }
+      var textMap = {
+        thinking: '思考中…',
+        tool: '执行工具' + (detail ? '：' + detail : '…'),
+        waiting_hitl: '等待审批（见顶部批准条）',
+      };
+      label.textContent = textMap[phase] || phase;
+      if (stale) {
+        label.textContent = '仍在运行，若久无响应请查看 HITL 或刷新';
+        box.classList.add('stale');
+      } else {
+        box.classList.remove('stale');
+      }
+      box.hidden = false;
+      box.classList.add('visible');
     },
 
     setComposerDisabled: function (on) {

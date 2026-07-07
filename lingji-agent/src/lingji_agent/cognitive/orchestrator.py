@@ -9,6 +9,7 @@
   - tool_executor 完成且超轮次 → format_response
 """
 
+import asyncio
 import json
 import logging
 import time
@@ -75,6 +76,8 @@ async def _agent_think_impl(
 ) -> AgentState:
     step_start = time.monotonic()
     registry: ToolRegistry = configurable.get("_registry")
+
+    await _notify_activity(configurable, "thinking")
 
     tools_schema = registry.to_openai_schema() if registry else None
 
@@ -210,6 +213,8 @@ async def _tool_executor_impl(state: AgentState) -> AgentState:
             hitl_enabled = configurable.get("_hitl_enabled", True)
             use_force_docker = force_docker_for_critical and risk == RiskLevel.CRITICAL
 
+            await _notify_activity(configurable, "tool", fn_name)
+
             if risk == RiskLevel.CRITICAL and hitl_enabled:
                 hitl_mgr: HITLManager | None = configurable.get("_hitl_manager")
                 thread_id = configurable.get("thread_id")
@@ -221,6 +226,7 @@ async def _tool_executor_impl(state: AgentState) -> AgentState:
                         "[tool_executor] HITL interrupt: %s(%s)",
                         fn_name, fn_args_str,
                     )
+                    await _notify_activity(configurable, "waiting_hitl", fn_name)
                     if hitl_mgr:
                         hitl_mgr.record_interrupt(
                             task_id=tc_id,
@@ -481,6 +487,7 @@ def build_run_config(
     use_interrupt: bool = True,
     sanitizer_force_docker: bool = True,
     user_id: str = "",
+    activity_reporter=None,
 ) -> dict[str, Any]:
     """构建 ainvoke / Command(resume) 用的 configurable config"""
     return {
@@ -493,6 +500,7 @@ def build_run_config(
             "_hitl_enabled": hitl_enabled,
             "_use_interrupt": use_interrupt,
             "_sanitizer_force_docker": sanitizer_force_docker,
+            "_activity_reporter": activity_reporter,
         }
     }
 
@@ -559,6 +567,7 @@ async def run_agent(
     hitl_enabled: bool = True,
     sanitizer_force_docker: bool = True,
     continue_thread: bool = False,
+    activity_reporter=None,
 ) -> AgentState:
     """执行一次 Agent 推理
 
@@ -582,6 +591,7 @@ async def run_agent(
         use_interrupt=use_interrupt,
         sanitizer_force_docker=sanitizer_force_docker,
         user_id=user_id,
+        activity_reporter=activity_reporter,
     )
 
     initial_state: AgentState | None = None
@@ -611,6 +621,18 @@ async def run_agent(
 
 
 # ── Helpers ───────────────────────────────────────────────
+
+async def _notify_activity(configurable: dict, phase: str, detail: str = "") -> None:
+    reporter = configurable.get("_activity_reporter")
+    if reporter is None:
+        return
+    try:
+        result = reporter(phase, detail)
+        if asyncio.iscoroutine(result):
+            await result
+    except Exception as exc:
+        logger.debug("[activity] reporter failed phase=%s: %s", phase, exc)
+
 
 def _error_state(state: AgentState, message: str) -> AgentState:
     return {

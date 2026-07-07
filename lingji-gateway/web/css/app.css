@@ -264,6 +264,51 @@ body {
 
 .status.off { color: var(--text-status-err); }
 
+.agent-activity {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--accent);
+}
+
+.agent-activity.visible {
+  display: inline-flex;
+}
+
+.agent-activity.stale {
+  color: var(--text-muted);
+}
+
+.agent-activity-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  flex-shrink: 0;
+  animation: agent-activity-pulse 1.4s ease-in-out infinite;
+}
+
+.agent-activity.stale .agent-activity-dot {
+  background: var(--text-muted);
+  animation: none;
+  opacity: 0.7;
+}
+
+@keyframes agent-activity-pulse {
+  0%, 100% { opacity: 0.35; transform: scale(0.85); }
+  50% { opacity: 1; transform: scale(1); }
+}
+
+.agent-activity-label {
+  max-width: min(280px, 70vw);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .agent-select {
   position: absolute;
   right: 48px;
