@@ -167,6 +167,7 @@ def find_pending_hitl_for_thread(
                 "task_id": task_id,
                 "description": (session or {}).get("description") or "危险操作需审批",
                 "risk_level": (session or {}).get("risk_level") or "critical",
+                "tool": (session or {}).get("tool") or "",
             }
 
     for session in get_pending_hitl_sessions_with_checkpoints(conn):

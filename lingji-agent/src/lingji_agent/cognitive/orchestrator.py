@@ -290,8 +290,8 @@ async def _tool_executor_impl(state: AgentState) -> AgentState:
                     )
                     result_content = json.dumps({
                         "error": f"操作 '{fn_name}' 已被 HITL 安全策略拦截。"
-                                 f"此操作需要手机端审批才能执行。"
-                                 f"请在手机端确认后重试。",
+                                 f"此操作需要审批才能执行。"
+                                 f"请在任意已登录设备（手机或电脑浏览器）点击批准按钮后重试。",
                         "hitl_required": True,
                         "risk": "critical",
                     }, ensure_ascii=False)

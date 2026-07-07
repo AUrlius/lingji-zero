@@ -25,11 +25,12 @@ type WSHandler struct {
 	config *config.Config
 	queue  *queue.OfflineQueue
 	inbox  *store.InboxStore
+	hitl   *store.HitlPendingStore
 	fleet  *FleetHandler
 }
 
-func NewWSHandler(h *hub.Hub, cfg *config.Config, q *queue.OfflineQueue, inbox *store.InboxStore, fleet *FleetHandler) *WSHandler {
-	return &WSHandler{hub: h, config: cfg, queue: q, inbox: inbox, fleet: fleet}
+func NewWSHandler(h *hub.Hub, cfg *config.Config, q *queue.OfflineQueue, inbox *store.InboxStore, hitl *store.HitlPendingStore, fleet *FleetHandler) *WSHandler {
+	return &WSHandler{hub: h, config: cfg, queue: q, inbox: inbox, hitl: hitl, fleet: fleet}
 }
 
 func (h *WSHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -191,6 +192,7 @@ func (h *WSHandler) writePump(c *hub.Client) {
 
 func (h *WSHandler) routeMessage(msgType protocol.MsgType, fromDevice string, raw []byte) {
 	CaptureWSMessage(h.inbox, string(msgType), fromDevice, raw)
+	CaptureHitlMessage(h.hitl, string(msgType), fromDevice, raw)
 
 	switch msgType {
 	case protocol.MsgCmdText, protocol.MsgCmdListSessions:

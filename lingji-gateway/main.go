@@ -41,13 +41,19 @@ func main() {
 		log.Fatalf("[Gateway] file registry 打开失败: %v", err)
 	}
 
+	hitlStore, err := store.NewHitlPendingFromDB(inboxStore.DB())
+	if err != nil {
+		log.Fatalf("[Gateway] hitl pending 打开失败: %v", err)
+	}
+
 	// 创建 WS 处理器
 	fleetHandler := handler.NewFleetHandler(h, cfg, q, inboxStore, fileRegistry)
-	wsHandler := handler.NewWSHandler(h, cfg, q, inboxStore, fleetHandler)
+	wsHandler := handler.NewWSHandler(h, cfg, q, inboxStore, hitlStore, fleetHandler)
 	agentsHandler := handler.NewAgentsHandler(h, cfg)
 	filesHandler := handler.NewFilesHandler(cfg)
 	inboxHandler := handler.NewInboxHandler(cfg, inboxStore)
 	fileRegHandler := handler.NewFileRegistryHandler(cfg, fileRegistry)
+	hitlHandler := handler.NewHitlHandler(cfg, hitlStore)
 
 	// H1 RunRegistry + WebSocket event stream
 	runWSHub := handler.NewRunWSHub()
@@ -68,6 +74,8 @@ func main() {
 	http.HandleFunc("POST /v1/fleet/relay", fleetHandler.HandleRelay)
 	http.HandleFunc("POST /v1/files/registry", fileRegHandler.HandleRegister)
 	http.HandleFunc("GET /v1/files/registry", fileRegHandler.HandleGet)
+	http.HandleFunc("GET /v1/hitl/pending", hitlHandler.HandlePending)
+	http.HandleFunc("POST /v1/hitl/respond", hitlHandler.HandleRespond)
 	http.Handle("/files", filesHandler)
 	http.Handle("/files/", filesHandler)
 	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {

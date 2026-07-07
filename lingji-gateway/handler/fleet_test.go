@@ -29,7 +29,7 @@ func testFleetSetup(t *testing.T) (*hub.Hub, *FleetHandler, *WSHandler, *store.I
 	t.Cleanup(func() { inbox.Close() })
 
 	fleet := NewFleetHandler(h, config.DefaultConfig(), q, inbox, nil)
-	ws := NewWSHandler(h, config.DefaultConfig(), q, inbox, fleet)
+	ws := NewWSHandler(h, config.DefaultConfig(), q, inbox, nil, fleet)
 	return h, fleet, ws, inbox
 }
 

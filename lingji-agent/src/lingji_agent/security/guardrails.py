@@ -96,8 +96,8 @@ def default_guardrail_rules() -> list[GuardrailRule]:
         _compile_pattern(
             "exfil.http_exfiltration",
             "Data exfiltration via HTTP client",
-            r"(curl|wget)\s+\S*(https?://[^\s'\"]+|evil\.com|attacker\.com)"
-            r"|requests\.(post|get)\s*\(\s*['\"]https?://",
+            r"(curl|wget)\s+\S*(https?://(?!(?:www\.)?lingji\.mygoal\.tech)[^\s'\"]+|evil\.com|attacker\.com)"
+            r"|requests\.(post|get)\s*\(\s*['\"]https?://(?!(?:www\.)?lingji\.mygoal\.tech)",
         ),
         GuardrailRule(
             rule_id="exfil.sensitive_path",

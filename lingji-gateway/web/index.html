@@ -6,7 +6,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <title>灵机助手</title>
-<link rel="stylesheet" href="/css/app.css?v=0.1.5">
+<link rel="stylesheet" href="/css/app.css?v=0.1.7">
 </head>
 <body>
 <div id="sidebarOverlay" class="sidebar-overlay" onclick="LingjiUI.closeSidebar()"></div>
@@ -34,6 +34,8 @@
       <button type="button">连接</button>
     </div>
 
+    <div class="hitl-dock" id="hitlDock" aria-live="polite"></div>
+
     <div class="chat-wrap">
       <div class="chat" id="chat"></div>
     </div>
@@ -43,7 +45,7 @@
       <div class="toolbar" id="toolbar">
         <label for="fileInput" class="toolbar-btn" title="上传文件">📎</label>
         <input type="file" id="fileInput" class="file-input-visually-hidden" multiple
-          accept="image/*,video/*,.pdf,.zip,.doc,.docx,.txt">
+          accept="image/*,video/*,.pdf,.zip,.doc,.docx,.txt,.md">
         <div class="composer-box">
           <textarea id="input" rows="1" placeholder="输入消息…" autocomplete="off" enterkeyhint="send"></textarea>
           <button type="button" id="btnSend" class="send-btn">发送</button>
@@ -53,8 +55,8 @@
   </div>
 </div>
 
-<script src="/js/ui.js?v=0.1.6"></script>
-<script src="/js/lingji-api.js?v=0.1.6"></script>
+<script src="/js/ui.js?v=0.1.7"></script>
+<script src="/js/lingji-api.js?v=0.1.7"></script>
 <script>
 (function () {
   var STORAGE_KEY = 'lingji_theme';

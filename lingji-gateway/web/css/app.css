@@ -638,6 +638,31 @@ body {
   margin-top: 8px;
 }
 
+.hitl-dock {
+  display: none;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--bg-hitl);
+  border-bottom: 1px solid var(--hitl-border);
+  max-height: 40vh;
+  overflow-y: auto;
+}
+
+.hitl-dock.visible {
+  display: flex;
+}
+
+.hitl-dock .msg.hitl {
+  margin: 0;
+}
+
+.msg.hitl .hitl-source {
+  font-size: 12px;
+  color: var(--text-secondary, #aaa);
+  margin-bottom: 6px;
+}
+
 .lf-id-chip {
   font-family: ui-monospace, monospace;
   font-size: 12px;

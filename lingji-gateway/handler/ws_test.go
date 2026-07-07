@@ -17,7 +17,7 @@ func TestDeliverDownstreamTargeted(t *testing.T) {
 
 	q := queue.NewOfflineQueue(16)
 	fleet := NewFleetHandler(h, config.DefaultConfig(), q, nil, nil)
-	ws := NewWSHandler(h, config.DefaultConfig(), q, nil, fleet)
+	ws := NewWSHandler(h, config.DefaultConfig(), q, nil, nil, fleet)
 
 	phoneA := make(chan []byte, 4)
 	phoneB := make(chan []byte, 4)
@@ -58,7 +58,7 @@ func TestDeliverDownstreamTargetUser(t *testing.T) {
 
 	q := queue.NewOfflineQueue(16)
 	fleet := NewFleetHandler(h, config.DefaultConfig(), q, nil, nil)
-	ws := NewWSHandler(h, config.DefaultConfig(), q, nil, fleet)
+	ws := NewWSHandler(h, config.DefaultConfig(), q, nil, nil, fleet)
 
 	chA := make(chan []byte, 4)
 	chB := make(chan []byte, 4)
@@ -96,7 +96,7 @@ func TestDeliverDownstreamBroadcastFallback(t *testing.T) {
 
 	q := queue.NewOfflineQueue(16)
 	fleet := NewFleetHandler(h, config.DefaultConfig(), q, nil, nil)
-	ws := NewWSHandler(h, config.DefaultConfig(), q, nil, fleet)
+	ws := NewWSHandler(h, config.DefaultConfig(), q, nil, nil, fleet)
 
 	phoneA := make(chan []byte, 4)
 	phoneB := make(chan []byte, 4)
@@ -128,7 +128,7 @@ func TestDeliverDownstreamOfflineQueue(t *testing.T) {
 
 	q := queue.NewOfflineQueue(16)
 	fleet := NewFleetHandler(h, config.DefaultConfig(), q, nil, nil)
-	ws := NewWSHandler(h, config.DefaultConfig(), q, nil, fleet)
+	ws := NewWSHandler(h, config.DefaultConfig(), q, nil, nil, fleet)
 
 	msg := protocol.NewMessage(protocol.MsgAgentRes, "lingji-pc", map[string]any{
 		"text":             "queued",
@@ -153,7 +153,7 @@ func TestRouteToTargetAgent(t *testing.T) {
 
 	q := queue.NewOfflineQueue(16)
 	fleet := NewFleetHandler(h, config.DefaultConfig(), q, nil, nil)
-	ws := NewWSHandler(h, config.DefaultConfig(), q, nil, fleet)
+	ws := NewWSHandler(h, config.DefaultConfig(), q, nil, nil, fleet)
 
 	pcCh := make(chan []byte, 4)
 	laptopCh := make(chan []byte, 4)
@@ -194,7 +194,7 @@ func TestRouteDefaultAgent(t *testing.T) {
 
 	q := queue.NewOfflineQueue(16)
 	fleet := NewFleetHandler(h, config.DefaultConfig(), q, nil, nil)
-	ws := NewWSHandler(h, config.DefaultConfig(), q, nil, fleet)
+	ws := NewWSHandler(h, config.DefaultConfig(), q, nil, nil, fleet)
 
 	pcCh := make(chan []byte, 4)
 	h.Register(&hub.Client{DeviceID: "lingji-pc", Send: pcCh, LastBeat: time.Now()})

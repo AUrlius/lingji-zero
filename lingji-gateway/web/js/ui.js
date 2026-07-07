@@ -107,11 +107,11 @@
 
     showHitlCard: function (payload, onDecision) {
       const taskId = payload.task_id || '';
-      if (taskId && document.querySelector('.msg.hitl[data-task-id="' + taskId + '"]')) {
+      const dock = el('hitlDock');
+      if (!dock) return;
+      if (taskId && dock.querySelector('.msg.hitl[data-task-id="' + taskId + '"]')) {
         return;
       }
-      const chat = el('chat');
-      if (!chat) return;
 
       const m = document.createElement('div');
       m.className = 'msg hitl';
@@ -121,6 +121,13 @@
       title.className = 'hitl-title';
       title.textContent = '⚠️ 危险操作需审批';
       m.appendChild(title);
+
+      if (payload.agent_id || payload.agent_label) {
+        const src = document.createElement('div');
+        src.className = 'hitl-source';
+        src.textContent = '来源：' + (payload.agent_label || payload.agent_id || 'Agent');
+        m.appendChild(src);
+      }
 
       const desc = document.createElement('div');
       desc.className = 'hitl-desc';
@@ -168,8 +175,15 @@
       actions.appendChild(btnReject);
       m.appendChild(actions);
       m.appendChild(statusEl);
-      chat.appendChild(m);
-      window.LingjiUI.scrollChatToBottom(true);
+      dock.appendChild(m);
+      dock.classList.add('visible');
+    },
+
+    clearHitlDock: function () {
+      const dock = el('hitlDock');
+      if (!dock) return;
+      dock.innerHTML = '';
+      dock.classList.remove('visible');
     },
 
     renderSessionList: function (sessions, activeThreadId, onSelect, agentLabelFn) {

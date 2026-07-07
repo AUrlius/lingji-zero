@@ -125,7 +125,7 @@ async def send_file_to_user(query: str = "", paths: list[str] | None = None) -> 
     for p in candidates:
         if _is_sensitive_path(p):
             return {
-                "error": f"文件「{p.name}」可能含敏感内容，需用户在手机端 HITL 确认后再发送",
+                "error": f"文件「{p.name}」可能含敏感内容，需在任意已登录设备点击批准按钮后再发送",
                 "sensitive": True,
                 "path": str(p),
             }

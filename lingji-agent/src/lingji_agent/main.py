@@ -299,6 +299,7 @@ async def main(config_path: str | None = None):
                 "history": history,
             }
             if pending_hitl:
+                pending_hitl = {**pending_hitl, "agent_id": config.network.device_id}
                 extra["pending_hitl"] = pending_hitl
             await _send_agent_reply(
                 message or f"已切换到：{switch_title}",
@@ -368,6 +369,8 @@ async def main(config_path: str | None = None):
                             "description": payload.get("description", ""),
                             "risk_level": "critical",
                             "tool": payload.get("tool", ""),
+                            "thread_id": pending.thread_id,
+                            "agent_id": config.network.device_id,
                             "target_device_id": pending.device_id,
                             "target_user_id": pending.user_id or pending.device_id,
                         },
@@ -676,7 +679,7 @@ async def main(config_path: str | None = None):
 
                 if thread_has_pending_hitl(db, thread_id, pending_runs):
                     await _send_agent_reply(
-                        "⏳ 当前会话仍有危险操作等待审批，请先批准或拒绝后再发送新消息。",
+                        "⏳ 当前会话仍有危险操作等待审批，请在任意已登录设备点击顶部批准条（或拒绝）后再发送新消息。",
                         target_device_id=conn_id,
                         target_user_id=user_id,
                     )

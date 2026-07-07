@@ -80,6 +80,7 @@
   var CACHE_SESSIONS = 'lingji_sessions_v2_' + USER_ID;
   var CACHE_ACTIVE_PREFIX = 'lingji_active_v3_' + USER_ID + '_';
   var CACHE_HITL_QUEUE = 'lingji_hitl_res_queue_v1_' + USER_ID;
+  var CACHE_HITL_PENDING = 'lingji_hitl_pending_v1_' + USER_ID;
   var CACHE_TARGET_AGENT = 'lingji_target_agent_id';
 
   var DEFAULT_AGENT_ID = 'lingji-pc';
@@ -104,6 +105,7 @@
   var pendingSwitchThreadId = null;
   var onlineAgents = [];
   var selectedAgentId = localStorage.getItem(CACHE_TARGET_AGENT) || DEFAULT_AGENT_ID;
+  var hitlPollTimer = null;
 
   function el(id) {
     return document.getElementById(id);
@@ -156,8 +158,152 @@
         saveHistoryCache(threadId, merged, agentId);
         UI().renderHistory(merged);
       }
+      restoreHitlDock();
       return merged;
     });
+  }
+
+  function loadHitlPendingList() {
+    try {
+      var raw = localStorage.getItem(CACHE_HITL_PENDING);
+      return raw ? JSON.parse(raw) : [];
+    } catch (e) {
+      return [];
+    }
+  }
+
+  function saveHitlPendingList(list) {
+    try {
+      if (!list || !list.length) {
+        localStorage.removeItem(CACHE_HITL_PENDING);
+      } else {
+        localStorage.setItem(CACHE_HITL_PENDING, JSON.stringify(list));
+      }
+    } catch (e) {}
+  }
+
+  function upsertHitlPending(item) {
+    if (!item || !item.task_id) return;
+    var list = loadHitlPendingList().filter(function (x) {
+      return x.task_id !== item.task_id;
+    });
+    list.push(item);
+    saveHitlPendingList(list);
+  }
+
+  function removeHitlPending(taskId) {
+    if (!taskId) return;
+    var list = loadHitlPendingList().filter(function (x) {
+      return x.task_id !== taskId;
+    });
+    saveHitlPendingList(list);
+    var dock = el('hitlDock');
+    if (dock) {
+      var card = dock.querySelector('.msg.hitl[data-task-id="' + taskId + '"]');
+      if (card) card.remove();
+      if (!dock.children.length) dock.classList.remove('visible');
+    }
+  }
+
+  function hitlPayloadWithAgent(payload) {
+    var out = Object.assign({}, payload || {});
+    if (!out.agent_id) {
+      var sess = findSession(activeThreadId);
+      out.agent_id = (sess && sess.agent_id) || getSelectedAgentId();
+    }
+    out.agent_label = agentLabel(out.agent_id);
+    return out;
+  }
+
+  function restoreHitlDock() {
+    var list = loadHitlPendingList();
+    if (!list.length) {
+      UI().clearHitlDock();
+      return;
+    }
+    UI().clearHitlDock();
+    list.forEach(function (item) {
+      showHitlRequest(item, true);
+    });
+  }
+
+  function sendHitlDecision(taskId, decision, agentId) {
+    if (!taskId) return;
+    var targetAgent = agentId || getSelectedAgentId();
+    if (!isOnline()) {
+      enqueueHitlRes(taskId, decision, targetAgent);
+      UI().appendSystem(
+        decision === 'approved'
+          ? '已记录批准，连接恢复后将自动提交'
+          : '已记录拒绝，连接恢复后将自动提交'
+      );
+      return;
+    }
+    ws.send(JSON.stringify({
+      msg_id: 'hitl-' + (++msgId),
+      msg_type: 'HITL_RES',
+      device_id: CONNECTION_ID,
+      timestamp: Date.now() / 1000,
+      payload: withTargetAgent({
+        task_id: taskId,
+        decision: decision,
+        target_agent_id: targetAgent,
+      }),
+    }));
+    removeHitlPending(taskId);
+  }
+
+  async function fetchHitlPendingFromGateway() {
+    if (!GATEWAY_TOKEN || !USER_ID) return;
+    var base = getApiBase();
+    var url = base + '/v1/hitl/pending?user_id=' + encodeURIComponent(USER_ID)
+      + '&token=' + encodeURIComponent(GATEWAY_TOKEN);
+    try {
+      var resp = await fetch(url, {
+        headers: { Authorization: 'Bearer ' + GATEWAY_TOKEN },
+      });
+      if (!resp.ok) return;
+      var data = await resp.json();
+      var items = Array.isArray(data.pending) ? data.pending : [];
+      items.forEach(function (item) {
+        upsertHitlPending({
+          task_id: item.task_id,
+          description: item.description,
+          tool: item.tool,
+          risk_level: item.risk_level,
+          agent_id: item.agent_id,
+          thread_id: item.thread_id,
+          ts: Date.now(),
+        });
+      });
+      restoreHitlDock();
+    } catch (e) {}
+  }
+
+  function startHitlPolling() {
+    if (hitlPollTimer) clearInterval(hitlPollTimer);
+    hitlPollTimer = setInterval(function () {
+      if (isOnline()) fetchHitlPendingFromGateway();
+    }, 30000);
+  }
+
+  function stopHitlPolling() {
+    if (hitlPollTimer) {
+      clearInterval(hitlPollTimer);
+      hitlPollTimer = null;
+    }
+  }
+
+  function tryAutoApproveFromText(text) {
+    var trimmed = (text || '').trim();
+    if (!trimmed) return false;
+    var list = loadHitlPendingList();
+    if (!list.length) return false;
+    if (!/^(批准|同意|approve|ok|好的|确认|yes)$/i.test(trimmed)) return false;
+    var item = list[0];
+    sendHitlDecision(item.task_id, 'approved', item.agent_id);
+    UI().appendSystem('已根据「' + trimmed + '」自动提交批准（' + item.task_id + '）');
+    return true;
   }
 
   function agentLabel(agentId) {
@@ -332,14 +478,14 @@
     } catch (e) {}
   }
 
-  function enqueueHitlRes(taskId, decision) {
+  function enqueueHitlRes(taskId, decision, agentId) {
     var queue = loadHitlResQueue().filter(function (item) {
       return item.task_id !== taskId;
     });
     queue.push({
       task_id: taskId,
       decision: decision,
-      target_agent_id: getSelectedAgentId(),
+      target_agent_id: agentId || getSelectedAgentId(),
       ts: Date.now(),
     });
     saveHitlResQueue(queue);
@@ -466,6 +612,11 @@
       saveSessionsCache();
       renderSessionList();
     }
+    if (p.pending_hitl) {
+      var ph = hitlPayloadWithAgent(p.pending_hitl);
+      upsertHitlPending(ph);
+      showHitlRequest(ph, true);
+    }
     if (Array.isArray(p.history) && activeThreadId) {
       var agentId = getSelectedAgentId();
       var localHist = loadHistoryCache(activeThreadId, agentId) || [];
@@ -473,9 +624,8 @@
       saveHistoryCache(activeThreadId, merged, agentId);
       UI().renderHistory(merged);
       enrichHistoryFromInbox(activeThreadId, agentId, merged);
-    }
-    if (p.pending_hitl) {
-      showHitlRequest(p.pending_hitl);
+    } else {
+      restoreHitlDock();
     }
     if (p.status === 'session_switched' && p.text) {
       UI().appendSystem(p.text);
@@ -530,6 +680,7 @@
     pendingNewSession = false;
     saveSessionsCache();
     UI().clearChat();
+    var sess = findSession(threadId);
     var history = loadHistoryCache(threadId, (sess && sess.agent_id) || selectedAgentId);
     if (history && history.length) {
       UI().renderHistory(history);
@@ -597,6 +748,9 @@
 
   function onConnected() {
     refreshOnlineAgents();
+    restoreHitlDock();
+    fetchHitlPendingFromGateway();
+    startHitlPolling();
     flushHitlResQueue();
     notifyClientIdMigrationOnce();
     fetchInboxThreads().then(function (inboxThreads) {
@@ -712,28 +866,18 @@
     refreshPendingUploads();
   }
 
-  function showHitlRequest(payload) {
-    UI().showHitlCard(payload, function (taskId, decision) {
+  function showHitlRequest(payload, skipPersist) {
+    var enriched = hitlPayloadWithAgent(payload);
+    if (!skipPersist) {
+      enriched.ts = Date.now();
+      upsertHitlPending(enriched);
+    }
+    UI().showHitlCard(enriched, function (taskId, decision) {
       if (!taskId) {
         UI().appendSystem('审批失败：缺少 task_id');
         return;
       }
-      if (!isOnline()) {
-        enqueueHitlRes(taskId, decision);
-        UI().appendSystem(
-          decision === 'approved'
-            ? '已记录批准，连接恢复后将自动提交'
-            : '已记录拒绝，连接恢复后将自动提交'
-        );
-        return;
-      }
-      ws.send(JSON.stringify({
-        msg_id: 'hitl-' + (++msgId),
-        msg_type: 'HITL_RES',
-        device_id: CONNECTION_ID,
-        timestamp: Date.now() / 1000,
-        payload: withTargetAgent({ task_id: taskId, decision: decision }),
-      }));
+      sendHitlDecision(taskId, decision, enriched.agent_id);
     });
   }
 
@@ -838,6 +982,7 @@
       };
       ws.onclose = function () {
         stopHeartbeat();
+        stopHitlPolling();
         authenticated = false;
         finishSessionSwitch();
         renderAgentSelect();
@@ -857,6 +1002,10 @@
     if (switchingSession) return;
     if (!isOnline()) {
       UI().appendSystem('未连接，请等待重连或刷新页面');
+      return;
+    }
+    if (text && tryAutoApproveFromText(text)) {
+      UI().clearInput();
       return;
     }
     try {
@@ -922,6 +1071,7 @@
     UI().setupKeyboardViewport();
     UI().setupChatScrollTracking();
     restoreFromCache();
+    restoreHitlDock();
     renderAgentSelect();
 
     var agentSelect = el('agentSelect');
@@ -939,6 +1089,8 @@
           }
         }
         if (isOnline()) {
+          restoreHitlDock();
+          fetchHitlPendingFromGateway();
           requestSessionList();
         } else {
           UI().appendSystem('已切换到 ' + agentLabel(getSelectedAgentId()));
