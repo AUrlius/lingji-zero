@@ -52,3 +52,8 @@ observability:
   metrics_host: 127.0.0.1
   metrics_port: 9091
   trace_log_enabled: true
+scheduler:
+  # 值守机（青铜剑）：enabled=false，scheduler_agent_id 指向移动调度终端
+  enabled: false
+  scheduler_agent_id: lingji-laptop
+  guardian_executor_ids: []

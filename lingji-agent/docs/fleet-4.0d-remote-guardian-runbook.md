@@ -1,7 +1,8 @@
 # Fleet 4.0d — 离沪值守 Runbook（Hermes 执行）
 
+> **部署（首次 / 发版）**：[fleet-4.0d-1-deploy-空城记与青铜剑.md](./fleet-4.0d-1-deploy-空城记与青铜剑.md) ← **pull 后按此文档分机执行**  
 > **设计定稿**：[fleet-4.0d-remote-guardian-design.md](./fleet-4.0d-remote-guardian-design.md)  
-> **用途**：交给 **Hermes @ 青铜剑** / **空城记** 执行的运维清单；**勿**粘贴给调度 Agent 当对话指令。
+> **用途**：日常巡检与 break-glass；**勿**粘贴给调度 Agent 当对话指令。
 
 ---
 
@@ -97,5 +98,6 @@ curl -sS "https://lingji.mygoal.tech/v1/agents?token=$LINGJI_AUTH_TOKEN" | head 
 
 ## G. 相关文档
 
-- [laptop-fleet-3.1-display-name-via-agent.md](./laptop-fleet-3.1-display-name-via-agent.md) — 命名；Tier 0 默认 Hermes §三  
+- [fleet-4.0d-1-deploy-空城记与青铜剑.md](./fleet-4.0d-1-deploy-空城记与青铜剑.md) — 发版部署（Hermes 分机步骤）
+- [laptop-fleet-3.1-display-name-via-agent.md](./laptop-fleet-3.1-display-name-via-agent.md) — 命名；Tier 0 默认 Hermes §三
 - [fleet-4.0-job-workflow.md](./fleet-4.0-job-workflow.md) — Job 工程摘要

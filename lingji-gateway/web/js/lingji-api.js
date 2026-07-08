@@ -81,12 +81,16 @@
   var CACHE_ACTIVE_PREFIX = 'lingji_active_v3_' + USER_ID + '_';
   var CACHE_HITL_QUEUE = 'lingji_hitl_res_queue_v1_' + USER_ID;
   var CACHE_HITL_PENDING = 'lingji_hitl_pending_v1_' + USER_ID;
-  var CACHE_TARGET_AGENT = 'lingji_target_agent_id';
+  var CACHE_TARGET_AGENT = 'lingji_target_agent_v2';
 
-  var DEFAULT_AGENT_ID = 'lingji-pc';
+  var DEFAULT_AGENT_ID = 'lingji-laptop';
   var AGENT_LABELS = {
     'lingji-pc': '青铜剑',
     'lingji-laptop': '空城记',
+  };
+  var AGENT_ROLES = {
+    'lingji-laptop': '调度',
+    'lingji-pc': '值守',
   };
 
   var DEBUG_UI = new URLSearchParams(location.search).has('debug');
@@ -344,6 +348,18 @@
     return AGENT_LABELS[agentId] || agentId || 'Agent';
   }
 
+  function agentOptionLabel(a) {
+    var name = a.display_name || agentLabel(a.device_id);
+    var role = AGENT_ROLES[a.device_id];
+    if (a.device_id === 'lingji-laptop') {
+      return name + ' · ' + (role || '调度');
+    }
+    if (a.device_id === 'lingji-pc') {
+      return name + ' · ' + (role || '值守') + '（执行机）';
+    }
+    return name + ' · ' + a.device_id;
+  }
+
   function sessionKey(s) {
     return (s.thread_id || '') + '|' + (s.agent_id || selectedAgentId);
   }
@@ -577,8 +593,7 @@
     onlineAgents.forEach(function (a) {
       var opt = document.createElement('option');
       opt.value = a.device_id;
-      var label = a.display_name || agentLabel(a.device_id);
-      opt.textContent = label + ' · ' + a.device_id;
+      opt.textContent = agentOptionLabel(a);
       select.appendChild(opt);
     });
     select.value = getSelectedAgentId();
@@ -597,6 +612,9 @@
       onlineAgents = Array.isArray(data.agents) ? data.agents : [];
       if (data.default_agent_id && !localStorage.getItem(CACHE_TARGET_AGENT)) {
         saveSelectedAgentId(data.default_agent_id);
+      }
+      if (data.scheduler_agent_id && !localStorage.getItem(CACHE_TARGET_AGENT)) {
+        saveSelectedAgentId(data.scheduler_agent_id);
       }
       renderAgentSelect();
     } catch (e) {}

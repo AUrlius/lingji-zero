@@ -8,6 +8,9 @@ import (
 
 const DefaultAgentID = "lingji-pc"
 
+// SchedulerAgentID is the Web 4.0d default chat target (调度 · 空城记).
+const SchedulerAgentID = "lingji-laptop"
+
 // IsAgentDevice 判断 device_id 是否为 PC Agent（lingji-* 前缀，非 phone-*）
 func IsAgentDevice(deviceID string) bool {
 	return strings.HasPrefix(deviceID, "lingji-")

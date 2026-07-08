@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from lingji_agent.execution.registry import RiskLevel, registry
+from lingji_agent.foundation.scheduler import get_scheduler_agent_id
 from lingji_agent.network.fleet_resolve import fetch_online_agents, resolve_agent_id
 from lingji_agent.network.job_client import create_fleet_file_job, get_job
 
@@ -103,7 +104,7 @@ async def job_create_fleet_transfer(
         receiver_agent_id=receiver,
         file_hint=file_hint,
         intent=intent,
-        scheduler_agent_id=sender,
+        scheduler_agent_id=get_scheduler_agent_id(fallback_device_id=sender),
         sender_display_name=_local_display_name(),
     )
     if job.get("error"):

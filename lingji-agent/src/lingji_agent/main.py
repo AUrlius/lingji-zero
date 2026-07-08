@@ -15,6 +15,7 @@ from pathlib import Path
 import structlog.contextvars
 
 from lingji_agent.foundation.config import load_config
+from lingji_agent.foundation.scheduler import bind_scheduler_config, is_scheduler_agent
 from lingji_agent.foundation.logger import setup_logging, get_logger
 from lingji_agent.foundation.db import init_db
 from lingji_agent.foundation.checkpointer import open_checkpointer
@@ -144,6 +145,14 @@ async def main(config_path: str | None = None):
         sys.exit(1)
 
     config = load_config(config_path)
+    bind_scheduler_config(config)
+    if config.scheduler.enabled or config.scheduler.scheduler_agent_id:
+        logger.info(
+            "scheduler: enabled=%s scheduler_agent_id=%s guardians=%s",
+            config.scheduler.enabled,
+            config.scheduler.scheduler_agent_id or "(auto)",
+            config.scheduler.guardian_executor_ids,
+        )
     os.environ.setdefault("LINGJI_GATEWAY_HOST", config.network.gateway_host)
     os.environ.setdefault("LINGJI_GATEWAY_PORT", str(config.network.gateway_port))
     if config.network.auth_token:
@@ -269,10 +278,40 @@ async def main(config_path: str | None = None):
             if not entry:
                 return ""
             local = config.network.display_name or config.network.device_id
-            return (
+            lines = [
                 f"用户当前从入口设备 {entry} 发令；"
                 f"本机 Agent 为 {config.network.device_id}（{local}）。"
-            )
+            ]
+            if is_scheduler_agent():
+                lines.append(
+                    "本机为调度 Agent：对用户负责，跨机/运维任务应建 LJ-* Job 并委派值守机（青铜剑 lingji-pc）执行。"
+                )
+            elif config.scheduler.scheduler_agent_id:
+                sched = config.scheduler.scheduler_agent_id
+                lines.append(
+                    f"本机为值守执行机；用户对话面为调度 Agent（{sched}）。"
+                    "勿代替调度 Agent 对用户做总体承诺。"
+                )
+            return "\n".join(lines)
+
+        def _build_scheduler_context() -> str:
+            if is_scheduler_agent():
+                guardians = config.scheduler.guardian_executor_ids or ["lingji-pc"]
+                g = "、".join(guardians)
+                return (
+                    f"本机 {config.network.device_id} 是用户的**调度 Agent**（对话面）。"
+                    f"值守执行机：{g}。跨机传文件、远程运维须建 LJ-* Job 并委派，"
+                    "对用户给一句话结案。"
+                )
+            sched = (config.scheduler.scheduler_agent_id or "").strip()
+            if sched and sched != config.network.device_id:
+                return (
+                    f"本机 {config.network.device_id} 是**值守执行机**。"
+                    f"用户对话面为调度 Agent {sched}；执行 step 并 REPORT，"
+                    "勿越权替调度回答总体意图。"
+                )
+            return ""
+
         router = Router()
 
         async def _reply_session_view(
@@ -837,6 +876,7 @@ async def main(config_path: str | None = None):
                     retrieved_memory_context=retrieved_context,
                     fleet_context=await _build_fleet_context(),
                     command_context=_command_context_from_payload(msg.payload),
+                    scheduler_context=_build_scheduler_context(),
                 )
                 pending = PendingRun(
                     thread_id=thread_id,

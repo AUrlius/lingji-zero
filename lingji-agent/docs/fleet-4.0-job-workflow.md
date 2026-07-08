@@ -3,7 +3,8 @@
 > **Status**: **4.0a implemented** (2026-07-08) · **4.0d design finalized** (remote guardian + Delegated HITL)  
 > **Full spec**: [Sprint Fleet 4.0 — Job 工作流、调度层与分级验收](../../../../docs/sprints/第六阶段：编码实现与测试/Sprint Fleet 4.0 — Job 工作流、调度层与分级验收.md)  
 > **4.0d spec**: [fleet-4.0d-remote-guardian-design.md](./fleet-4.0d-remote-guardian-design.md)  
-> **Runbook**: [fleet-4.0d-remote-guardian-runbook.md](./fleet-4.0d-remote-guardian-runbook.md)
+> **Runbook**: [fleet-4.0d-remote-guardian-runbook.md](./fleet-4.0d-remote-guardian-runbook.md)  
+> **Deploy**: [fleet-4.0d-1-deploy-空城记与青铜剑.md](./fleet-4.0d-1-deploy-空城记与青铜剑.md)
 
 ## One-line goal
 
@@ -76,7 +77,8 @@ LJ-A1B2C3D4 失败：接收机未确认（…）。详情 GET /v1/jobs/LJ-A1B2C3
 | **4.0a-fix** | Upload fast-path: text with action intent → Agent not local save |
 | **4.0b** | JOB_DELEGATE/EVENT, receive_verify, Web job drawer |
 | **4.0c** | Hermes bridge + playbooks |
-| **4.0d** | Remote guardian; `approval_scope`; Delegated HITL; Hermes Permission Proxy |
+| **4.0d-1** | Web default `lingji-laptop` + `scheduler` config + Job `scheduler_agent_id` | ✅ coded |
+| **4.0d** | `approval_scope`; Delegated HITL; Hermes Permission Proxy |
 
 ## Existing code anchors
 

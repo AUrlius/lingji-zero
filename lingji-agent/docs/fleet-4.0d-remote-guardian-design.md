@@ -363,7 +363,7 @@ Playbook **禁止**任意 shell；命令列表 **写死在仓库** `scripts/play
 |-------|------|-----------------|
 | **4.0a** | Job 台账 + fleet 关联 | ✅ 已编码 |
 | **4.0a-fix** | upload fast-path | ✅ `65d37d1` |
-| **4.0d-1** | 文档 + Web 默认调度空城记 + `scheduler_agent_id` config | 1–2d |
+| **4.0d-1** | Web 默认调度空城记 + `scheduler_agent_id` config | ✅ 已编码 |
 | **4.0d-2** | `approval_scope` 字段 + playbook 4 个 + bridge 常驻 runbook | 2–3d |
 | **4.0d-3** | Delegated HITL（Gateway 路由 + `hitl_delegate_respond`） | 3–5d |
 | **4.0d-4** | Hermes Permission Proxy watcher | 2–3d |

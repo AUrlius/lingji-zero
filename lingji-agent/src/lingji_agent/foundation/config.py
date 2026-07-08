@@ -67,12 +67,21 @@ class ObservabilityConfig(BaseModel):
     trace_log_enabled: bool = True
 
 
+class SchedulerConfig(BaseModel):
+    """Fleet 4.0d — 调度层配置（离沪：空城记调度、青铜剑值守）"""
+
+    enabled: bool = False
+    scheduler_agent_id: str = ""
+    guardian_executor_ids: list[str] = []
+
+
 class AgentConfig(BaseModel):
     network: NetworkConfig = NetworkConfig()
     llm: LLMConfig = LLMConfig()
     security: SecurityConfig = SecurityConfig()
     memory: MemoryConfig = MemoryConfig()
     observability: ObservabilityConfig = ObservabilityConfig()
+    scheduler: SchedulerConfig = SchedulerConfig()
 
 
 # ── 环境变量映射 ──────────────────────────────────────────
@@ -80,6 +89,12 @@ _ENV_MAP = {
     "LINGJI_GATEWAY_HOST": ("network", "gateway_host"),
     "LINGJI_GATEWAY_PORT": ("network", "gateway_port", int),
     "LINGJI_DEVICE_ID": ("network", "device_id"),
+    "LINGJI_SCHEDULER_AGENT_ID": ("scheduler", "scheduler_agent_id"),
+    "LINGJI_SCHEDULER_ENABLED": (
+        "scheduler",
+        "enabled",
+        lambda v: v.lower() in ("1", "true", "yes"),
+    ),
     "LINGJI_AUTH_TOKEN": ("network", "auth_token"),
     "DEEPSEEK_API_KEY": ("llm", "api_key"),
     "LLM_MODEL": ("llm", "model"),

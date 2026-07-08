@@ -12,6 +12,7 @@ from lingji_agent.foundation.config import (
     NetworkConfig,
     LLMConfig,
     SecurityConfig,
+    SchedulerConfig,
     load_config,
 )
 
@@ -33,6 +34,12 @@ class TestConfigDefaults:
         assert cfg.security.hitl_enabled is True
         assert cfg.security.hitl_timeout_sec == 300
         assert cfg.security.max_execution_time == 30
+
+    def test_default_scheduler(self):
+        cfg = AgentConfig()
+        assert cfg.scheduler.enabled is False
+        assert cfg.scheduler.scheduler_agent_id == ""
+        assert cfg.scheduler.guardian_executor_ids == []
 
 
 class TestYamlLoading:
@@ -67,6 +74,25 @@ class TestYamlLoading:
             cfg = load_config(path)
             assert cfg.network.device_id == "custom-pc"
             assert cfg.network.gateway_port == 443  # 默认值
+        finally:
+            os.unlink(path)
+
+    def test_scheduler_yaml(self):
+        yaml_data = {
+            "scheduler": {
+                "enabled": True,
+                "scheduler_agent_id": "lingji-laptop",
+                "guardian_executor_ids": ["lingji-pc"],
+            }
+        }
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+            yaml.dump(yaml_data, f)
+            path = f.name
+        try:
+            cfg = load_config(path)
+            assert cfg.scheduler.enabled is True
+            assert cfg.scheduler.scheduler_agent_id == "lingji-laptop"
+            assert cfg.scheduler.guardian_executor_ids == ["lingji-pc"]
         finally:
             os.unlink(path)
 

@@ -73,9 +73,14 @@ class TestFleetSendFile:
                 mock_job,
             ),
             patch(
+                "lingji_agent.execution.tools.fleet_tools.get_scheduler_agent_id",
+                return_value="lingji-laptop",
+            ),
+            patch(
                 "lingji_agent.execution.tools.fleet_tools.fetch_online_agents",
                 AsyncMock(return_value=[]),
             ),
+            patch.dict("os.environ", {"LINGJI_DEVICE_ID": "lingji-laptop"}),
         ):
             result = await tool.fn(
                 paths=[str(f)],
@@ -92,6 +97,9 @@ class TestFleetSendFile:
         assert call_kwargs["to_agent_id"] == "lingji-pc"
         assert call_kwargs["user_id"] == "user-abc"
         assert call_kwargs["job_id"] == "LJ-TEST01"
+        job_kwargs = mock_job.await_args.kwargs
+        assert job_kwargs["scheduler_agent_id"] == "lingji-laptop"
+        assert job_kwargs["sender_agent_id"] == "lingji-laptop"
 
     @pytest.mark.asyncio
     async def test_transfer_to_user_returns_attachments(self, tmp_path):

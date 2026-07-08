@@ -48,7 +48,9 @@ func (a *AgentsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{
-		"agents":           agents,
-		"default_agent_id": DefaultAgentID,
+		"agents":              agents,
+		"default_agent_id":    SchedulerAgentID,
+		"scheduler_agent_id":  SchedulerAgentID,
+		"legacy_default_id":   DefaultAgentID,
 	})
 }

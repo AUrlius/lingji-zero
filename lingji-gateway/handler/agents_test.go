@@ -37,8 +37,11 @@ func TestAgentsHandlerListsOnlineAgents(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 		t.Fatal(err)
 	}
-	if body["default_agent_id"] != "lingji-pc" {
-		t.Fatalf("default_agent_id = %v", body["default_agent_id"])
+	if body["default_agent_id"] != "lingji-laptop" {
+		t.Fatalf("default_agent_id = %v, want lingji-laptop", body["default_agent_id"])
+	}
+	if body["scheduler_agent_id"] != "lingji-laptop" {
+		t.Fatalf("scheduler_agent_id = %v", body["scheduler_agent_id"])
 	}
 
 	rawAgents, ok := body["agents"].([]any)

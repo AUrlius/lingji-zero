@@ -16,6 +16,7 @@ from lingji_agent.network.file_registry_client import register_lingji_file, requ
 from lingji_agent.network.file_upload import DEFAULT_MAX_BYTES, upload_file_to_gateway
 from lingji_agent.network.fleet_client import request_fleet_transfer
 from lingji_agent.network.fleet_resolve import fetch_online_agents, resolve_agent_id
+from lingji_agent.foundation.scheduler import get_scheduler_agent_id
 from lingji_agent.network.job_client import create_fleet_file_job
 
 
@@ -163,7 +164,7 @@ async def fleet_send_file(
             receiver_agent_id=to_agent,
             file_hint=attachment.get("name", ""),
             intent=f"传文件 {attachment.get('name', '')} → {to_agent}",
-            scheduler_agent_id=from_agent,
+            scheduler_agent_id=get_scheduler_agent_id(fallback_device_id=from_agent),
             sender_display_name=await _display_name_for(from_agent),
             receiver_display_name=await _display_name_for(to_agent),
         )
