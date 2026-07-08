@@ -91,4 +91,4 @@ LJ-A1B2C3D4 失败：接收机未确认（…）。详情 GET /v1/jobs/LJ-A1B2C3
 
 ## Related ops doc
 
-Fleet 3.1 naming: prefer **Hermes §三** over browser Agent §二 — see [laptop-fleet-3.1-display-name-via-agent.md](./laptop-fleet-3.1-display-name-via-agent.md).
+Fleet 3.1 naming: prefer **Hermes 第三节** over browser Agent 第一/二节 — see [laptop-fleet-3.1-display-name-via-agent.md](./laptop-fleet-3.1-display-name-via-agent.md).

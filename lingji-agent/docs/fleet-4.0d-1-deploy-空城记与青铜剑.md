@@ -3,7 +3,8 @@
 > **版本**：2026-07-08 · 对应 Git `main` 含 **4.0a Job** + **fast-path 修复** + **4.0d-1 调度默认**  
 > **读者**：**Hermes @ 青铜剑**、**Hermes @ 空城记**（按章节分头执行）  
 > **设计**：[fleet-4.0d-remote-guardian-design.md](./fleet-4.0d-remote-guardian-design.md)  
-> **勿**将本文全文粘贴给灵机 Agent 对话。
+> **勿**将本文全文粘贴给灵机 Agent 对话。  
+> **章节引用**：下文用【第 N 节】（如【第 5 节】），中文键盘可直接输入，无需特殊符号。
 
 ---
 
@@ -33,7 +34,7 @@
 ③ 青铜剑 Hermes：pull + config + restart Agent
 ④ 空城记 Hermes：pull + config + restart Agent
 ⑤ 用户浏览器：Ctrl+F5 或 ?v=0.1.9
-⑥ 按 §5 验收清单逐项勾
+⑥ 按【第 5 节】验收清单逐项勾
 ```
 
 > **Gateway deploy 只需青铜剑（或有 SSH 权限的机器）执行一次。**  

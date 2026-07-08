@@ -92,12 +92,12 @@ curl -sS "https://lingji.mygoal.tech/v1/agents?token=$LINGJI_AUTH_TOKEN" | head 
 
 ## F. Break-glass（仅调度与 Gateway 均不可用）
 
-用户可直接让 **Hermes @ 青铜剑** 执行 §A/C 命令；**不计入** Job 台账，事后补记运维日志。
+用户可直接让 **Hermes @ 青铜剑** 执行【附录 A / C】中的命令；**不计入** Job 台账，事后补记运维日志。
 
 ---
 
 ## G. 相关文档
 
 - [fleet-4.0d-1-deploy-空城记与青铜剑.md](./fleet-4.0d-1-deploy-空城记与青铜剑.md) — 发版部署（Hermes 分机步骤）
-- [laptop-fleet-3.1-display-name-via-agent.md](./laptop-fleet-3.1-display-name-via-agent.md) — 命名；Tier 0 默认 Hermes §三
+- [laptop-fleet-3.1-display-name-via-agent.md](./laptop-fleet-3.1-display-name-via-agent.md) — 命名；Tier 0 默认 Hermes【第三节】
 - [fleet-4.0-job-workflow.md](./fleet-4.0-job-workflow.md) — Job 工程摘要
