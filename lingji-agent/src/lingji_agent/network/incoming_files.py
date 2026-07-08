@@ -16,6 +16,17 @@ _SAFE_NAME = re.compile(r"[^A-Za-z0-9._\-()\u4e00-\u9fff]+")
 _ORGANIZE_HINT = re.compile(
     r"(放到|移至|移到|放进|移动到|转移到|复制到|拷贝到|整理到|归类到|归档到)"
 )
+_LOCAL_SAVE_ONLY_HINT = re.compile(
+    r"(保存到电脑|存到电脑|落盘|仅保存|只保存|保存一下|存一下)"
+)
+_FLEET_ACTION_HINT = re.compile(
+    r"(发给|发到|传给|发送给|传到|推给|转发给|转给|发给|送到)"
+)
+_FLEET_TARGET_HINT = re.compile(
+    r"(青铜剑|空城记|lingji-pc|lingji-laptop|另一台|笔记本|laptop|主pc|primary\s*pc)",
+    re.IGNORECASE,
+)
+_SEND_TO_USER_HINT = re.compile(r"(发给我|传到手机|发到手机|推给我|下载到手机)")
 
 
 def sanitize_filename(name: str) -> str:
@@ -42,6 +53,38 @@ def _resolve_dest_under_base(base: Path, name: str) -> Path | None:
 def text_implies_file_organization(text: str) -> bool:
     """用户文字是否要求将上传文件整理/移动到其他目录。"""
     return bool(_ORGANIZE_HINT.search(text.strip()))
+
+
+def upload_has_action_intent(text: str) -> bool:
+    """上传附带文字是否含跨设备/整理/发回用户等需 Agent 处理的意图。"""
+    plain = text.strip()
+    if not plain:
+        return False
+    if text_implies_file_organization(plain):
+        return True
+    if _SEND_TO_USER_HINT.search(plain):
+        return True
+    lower = plain.lower()
+    if "fleet_send_file" in lower or "relay_file_by_id" in lower:
+        return True
+    if _FLEET_ACTION_HINT.search(plain) and (
+        _FLEET_TARGET_HINT.search(plain) or _SEND_TO_USER_HINT.search(plain)
+    ):
+        return True
+    return False
+
+
+def should_upload_fastpath(text: str) -> bool:
+    """仅纯上传（无文字）或显式「只要本机保存」时走 fast-path，其余交 Agent。"""
+    plain = text.strip()
+    if not plain:
+        return True
+    if _LOCAL_SAVE_ONLY_HINT.search(plain) and not upload_has_action_intent(plain):
+        return True
+    if upload_has_action_intent(plain):
+        return False
+    # 任意非空文字均视为有后续意图，避免误落本机 incoming
+    return False
 
 
 def uploads_all_saved(results: list[dict], expected: int) -> bool:

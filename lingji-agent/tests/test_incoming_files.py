@@ -7,6 +7,8 @@ from lingji_agent.network.incoming_files import (
     save_uploads_to_pc,
     _resolve_dest_under_base,
     text_implies_file_organization,
+    upload_has_action_intent,
+    should_upload_fastpath,
     uploads_all_saved,
     format_saved_reply,
     format_upload_errors,
@@ -35,6 +37,32 @@ class TestUploadHelpers:
     def test_organization_intent_with_path(self):
         assert text_implies_file_organization("放到 ~/Downloads/LingjiIncoming/test/")
         assert text_implies_file_organization("移到 LingjiIncoming/test 文件夹")
+
+    def test_upload_has_action_intent_fleet(self):
+        msg = "请用 fleet_send_file 把下面文件发给青铜剑"
+        assert upload_has_action_intent(msg)
+        assert not should_upload_fastpath(msg)
+
+    def test_upload_has_action_intent_natural_language(self):
+        assert upload_has_action_intent("把这个发给青铜剑")
+        assert upload_has_action_intent("传到手机")
+        assert not should_upload_fastpath("把这个发给青铜剑")
+
+    def test_should_upload_fastpath_pure_upload(self):
+        assert should_upload_fastpath("")
+        assert should_upload_fastpath("   ")
+
+    def test_should_upload_fastpath_local_save_only(self):
+        assert should_upload_fastpath("保存到电脑")
+        assert should_upload_fastpath("落盘")
+
+    def test_should_upload_fastpath_any_other_text(self):
+        assert not should_upload_fastpath("帮我看看这个文件")
+        assert not should_upload_fastpath("分析一下")
+
+    def test_local_save_wins_over_empty_fleet_words(self):
+        assert should_upload_fastpath("保存到电脑")
+        assert not should_upload_fastpath("保存到电脑并发给青铜剑")
 
     def test_uploads_all_saved(self):
         assert uploads_all_saved([{"path": "/a"}], 1)

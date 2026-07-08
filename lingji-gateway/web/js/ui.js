@@ -286,7 +286,8 @@
         return;
       }
       var textMap = {
-        thinking: '思考中…',
+        received: '已收到，正在处理…',
+        thinking: '处理中…',
         tool: '执行工具' + (detail ? '：' + detail : '…'),
         waiting_hitl: '等待审批（见顶部批准条）',
       };

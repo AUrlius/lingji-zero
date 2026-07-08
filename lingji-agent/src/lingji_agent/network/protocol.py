@@ -2,7 +2,7 @@
 
 6 种消息类型：AUTH_REQ, HEARTBEAT, CMD_TEXT, HITL_REQ, HITL_RES, AGENT_RES
 AGENT_RES.payload 可含 attachments[]（G6 远程文件下载）
-AGENT_RES.payload.status=activity 时为运行阶段指示（非聊天）：phase=thinking|tool|waiting_hitl|idle
+AGENT_RES.payload.status=activity 时为运行阶段指示（非聊天）：phase=received|thinking|tool|waiting_hitl|idle
 """
 
 import json

@@ -57,7 +57,7 @@ from lingji_agent.foundation.db import (
 )
 from lingji_agent.network.incoming_files import (
     save_uploads_to_pc,
-    text_implies_file_organization,
+    should_upload_fastpath,
     uploads_all_saved,
     format_saved_reply,
     format_upload_errors,
@@ -677,6 +677,7 @@ async def main(config_path: str | None = None):
             device_id = user_id
             new_session = bool(msg.payload.get("new_session"))
             switch_thread_id = msg.payload.get("thread_id") or None
+            upload_deferred_to_agent = False
             run_id = str(uuid.uuid4())
             run_started_at = time.monotonic()
             structlog.contextvars.bind_contextvars(run_id=run_id, device_id=device_id)
@@ -726,7 +727,7 @@ async def main(config_path: str | None = None):
                         return
 
                     plain_text = user_text.strip()
-                    if not text_implies_file_organization(plain_text):
+                    if should_upload_fastpath(plain_text):
                         run_metrics.increment("upload_fastpath_total")
                         thread_id, _continue = _resolve_thread_id(
                             device_id, new_session, switch_thread_id,
@@ -757,6 +758,7 @@ async def main(config_path: str | None = None):
                         if plain_text
                         else upload_block
                     )
+                    upload_deferred_to_agent = True
 
                 thread_id, continue_thread = _resolve_thread_id(
                     device_id, new_session, switch_thread_id,
@@ -793,6 +795,8 @@ async def main(config_path: str | None = None):
                 if memory_warmup and not memory_warmup.done():
                     await memory_warmup
 
+                if upload_deferred_to_agent:
+                    await activity("received")
                 await activity("thinking")
 
                 retrieved_context = memory_mgr.retrieve_context(
