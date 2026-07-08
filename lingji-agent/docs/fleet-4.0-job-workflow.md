@@ -1,7 +1,9 @@
 # Fleet 4.0 — Job Workflow (Engineering Summary)
 
-> **Status**: **4.0a implemented** (2026-07-08) — Job store + `/v1/jobs` + fleet transfer linkage + Agent `job_tools` / `fleet_send_file` LJ-*  
-> **Full spec**: [Sprint Fleet 4.0 — Job 工作流、调度层与分级验收](../../../../docs/sprints/第六阶段：编码实现与测试/Sprint Fleet 4.0 — Job 工作流、调度层与分级验收.md)
+> **Status**: **4.0a implemented** (2026-07-08) · **4.0d design finalized** (remote guardian + Delegated HITL)  
+> **Full spec**: [Sprint Fleet 4.0 — Job 工作流、调度层与分级验收](../../../../docs/sprints/第六阶段：编码实现与测试/Sprint Fleet 4.0 — Job 工作流、调度层与分级验收.md)  
+> **4.0d spec**: [fleet-4.0d-remote-guardian-design.md](./fleet-4.0d-remote-guardian-design.md)  
+> **Runbook**: [fleet-4.0d-remote-guardian-runbook.md](./fleet-4.0d-remote-guardian-runbook.md)
 
 ## One-line goal
 
@@ -55,7 +57,9 @@ FLEET_ACK                → update job step S4
 - `job_create`, `job_get`, `job_dispatch_step`, `job_close`
 - `job_invoke_hermes` (Phase 4.0c)
 
-Default scheduler: `lingji-pc` (青铜剑).
+Default scheduler: **`lingji-laptop`（空城记）** when user is mobile; **`lingji-pc`（青铜剑）** when co-located. See 4.0d.
+
+Guardian executor (Shanghai): **`lingji-pc`（青铜剑）** — not the user's chat target.
 
 ## User reply templates
 
@@ -69,8 +73,10 @@ LJ-A1B2C3D4 失败：接收机未确认（…）。详情 GET /v1/jobs/LJ-A1B2C3
 | Phase | Scope |
 |-------|--------|
 | **4.0a** | Job store + transfer linkage + scheduler tools + L1 close message |
+| **4.0a-fix** | Upload fast-path: text with action intent → Agent not local save |
 | **4.0b** | JOB_DELEGATE/EVENT, receive_verify, Web job drawer |
 | **4.0c** | Hermes bridge + playbooks |
+| **4.0d** | Remote guardian; `approval_scope`; Delegated HITL; Hermes Permission Proxy |
 
 ## Existing code anchors
 
