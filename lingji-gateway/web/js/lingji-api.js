@@ -806,6 +806,43 @@
       if (!job._uiThread) return;
       if (jobIsActive(job) || jobIsClosed(job)) UI().upsertJobCard(job, fmt);
     });
+    var chat = el('chat');
+    if (chat) revealJobsFromText(chat.textContent);
+  }
+
+  function extractJobIds(text) {
+    var ids = [];
+    var re = /\bLJ-[0-9A-Fa-f]{8,}\b/g;
+    var raw = String(text || '');
+    var m;
+    while ((m = re.exec(raw)) !== null) {
+      var id = m[0].toUpperCase();
+      if (ids.indexOf(id) < 0) ids.push(id);
+    }
+    return ids;
+  }
+
+  async function fetchAndShowJob(jobId) {
+    if (!jobId || !GATEWAY_TOKEN) return;
+    var cached = trackedJobs[jobId];
+    if (cached && cached.job_id) {
+      applyJob(cached, true);
+    }
+    var base = getApiBase();
+    var url = base + '/v1/jobs/' + encodeURIComponent(jobId)
+      + '?token=' + encodeURIComponent(GATEWAY_TOKEN);
+    try {
+      var resp = await fetch(url, {
+        headers: { Authorization: 'Bearer ' + GATEWAY_TOKEN },
+      });
+      if (!resp.ok) return;
+      var data = await resp.json();
+      if (data && data.job_id) applyJob(data, true);
+    } catch (e) {}
+  }
+
+  function revealJobsFromText(text) {
+    extractJobIds(text).forEach(function (id) { fetchAndShowJob(id); });
   }
 
   function applyJob(job, showCard) {
@@ -813,6 +850,10 @@
     var prev = trackedJobs[job.job_id];
     if (prev && prev._uiThread && !job._uiThread) job._uiThread = prev._uiThread;
     if (showCard && activeThreadId && !job._uiThread) job._uiThread = activeThreadId;
+    if (!showCard && !job._uiThread) {
+      var sess = sessionMatchingJob(job);
+      if (sess && sess.thread_id) job._uiThread = sess.thread_id;
+    }
     trackedJobs[job.job_id] = Object.assign({}, prev || {}, job);
     renderTrackedJobList();
     if (showCard && job._uiThread && job._uiThread === activeThreadId) {
@@ -1603,6 +1644,7 @@
         if (!/^已切换到/.test(String(p.text || '').trim())) {
           UI().appendMessage('agent', p.text || '', p.attachments, p.lingji_files);
           appendToHistoryCache(activeThreadId, 'agent', p.text || '', p.attachments, p.lingji_files);
+          revealJobsFromText(p.text);
         }
       }
     } else if (msg.msg_type === 'HITL_REQ') {
@@ -1727,9 +1769,9 @@
     pendingUploads = [];
     refreshPendingUploads();
     if (!text && !uploads.length) return;
-    UI().setAgentActivity('thinking');
-    scheduleActivityStaleTimer();
     await sendPayload(text, uploads);
+    UI().setAgentActivity('received');
+    scheduleActivityStaleTimer();
     UI().clearInput();
     UI().focusInput();
   }

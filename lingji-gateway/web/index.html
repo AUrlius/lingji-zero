@@ -7,11 +7,10 @@
 <meta name="mobile-web-app-capable" content="yes">
 <title>灵机</title>
 <meta name="theme-color" content="#111318">
-<link rel="stylesheet" href="/css/app.css?v=0.1.19">
+<link rel="stylesheet" href="/css/app.css?v=0.1.20">
 </head>
 <body>
 <div id="sidebarOverlay" class="sidebar-overlay" onclick="LingjiUI.closeSidebar()"></div>
-<div id="hermesOverlay" class="hermes-overlay"></div>
 <div id="app">
   <aside id="sidebar" class="sidebar">
     <div class="sidebar-brand">灵机</div>
@@ -49,20 +48,27 @@
     </div>
 
     <div class="hitl-dock" id="hitlDock" aria-live="polite"></div>
-
-    <div class="chat-wrap">
-      <div class="chat" id="chat"></div>
+    <div class="desk-activity" id="deskActivity" hidden>
+      <span class="agent-activity-dot" aria-hidden="true"></span>
+      <span id="deskActivityLabel">处理中…</span>
     </div>
 
-    <div class="composer-area">
-      <div class="pending-bar" id="pendingBar"></div>
-      <div class="toolbar" id="toolbar">
-        <label for="fileInput" class="toolbar-btn" title="上传文件">📎</label>
-        <input type="file" id="fileInput" class="file-input-visually-hidden" multiple
-          accept="image/*,video/*,.pdf,.zip,.doc,.docx,.txt,.md">
-        <div class="composer-box">
-          <textarea id="input" rows="1" placeholder="向秘书交办…" autocomplete="off" enterkeyhint="send"></textarea>
-          <button type="button" id="btnSend" class="send-btn">发送</button>
+    <div class="desk-body">
+      <div id="hermesOverlay" class="hermes-overlay"></div>
+      <div class="chat-wrap">
+        <div class="chat" id="chat"></div>
+      </div>
+
+      <div class="composer-area">
+        <div class="pending-bar" id="pendingBar"></div>
+        <div class="toolbar" id="toolbar">
+          <label for="fileInput" class="toolbar-btn" title="上传文件">📎</label>
+          <input type="file" id="fileInput" class="file-input-visually-hidden" multiple
+            accept="image/*,video/*,.pdf,.zip,.doc,.docx,.txt,.md">
+          <div class="composer-box">
+            <textarea id="input" rows="1" placeholder="向秘书交办…" autocomplete="off" enterkeyhint="send"></textarea>
+            <button type="button" id="btnSend" class="send-btn">发送</button>
+          </div>
         </div>
       </div>
     </div>
@@ -89,8 +95,8 @@
   </aside>
 </div>
 
-<script src="/js/ui.js?v=0.1.19"></script>
-<script src="/js/lingji-api.js?v=0.1.19"></script>
+<script src="/js/ui.js?v=0.1.20"></script>
+<script src="/js/lingji-api.js?v=0.1.20"></script>
 <script>
 (function () {
   var STORAGE_KEY = 'lingji_theme';

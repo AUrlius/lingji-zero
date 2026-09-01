@@ -214,7 +214,7 @@
       if (cls === 'system' && (/^已切换到/.test(t) || t === '正在同步会话列表…')) {
         return;
       }
-      if (cls === 'user' || cls === 'agent') removeTyping();
+      if (cls === 'agent') removeTyping();
       const m = document.createElement('div');
       m.className = 'msg ' + cls;
       fillMessage(m, cls, text, attachments, lingjiFiles);
@@ -241,7 +241,7 @@
 
       const title = document.createElement('div');
       title.className = 'hitl-title';
-      title.textContent = '需您授权';
+      title.textContent = '待你审批';
       m.appendChild(title);
 
       if (payload.agent_id || payload.agent_label) {
@@ -372,7 +372,14 @@
       m.innerHTML = '';
       const head = document.createElement('div');
       head.className = 'job-card-head';
-      head.textContent = job.job_id || '';
+      const idEl = document.createElement('span');
+      idEl.className = 'job-card-id';
+      idEl.textContent = job.job_id || '';
+      const pill = document.createElement('span');
+      pill.className = 'job-pill job-pill-' + (job.status || 'planned');
+      pill.textContent = fmt.statusLabel ? fmt.statusLabel(job.status) : (job.status || '');
+      head.appendChild(idEl);
+      head.appendChild(pill);
       m.appendChild(head);
 
       var closed = job.status === 'completed' || job.status === 'failed';
@@ -390,7 +397,7 @@
         progress.textContent = durationText ? ('失败，耗时 ' + durationText) : '失败';
       } else {
         progress.classList.add('is-busy');
-        progress.textContent = '处理中';
+        progress.textContent = (fmt.statusLabel && fmt.statusLabel(job.status)) || '处理中';
       }
       m.appendChild(progress);
 
@@ -444,7 +451,11 @@
         ul.appendChild(li);
       });
       m.appendChild(ul);
-      if (!existing) chat.appendChild(m);
+      if (!existing) {
+        var typing = chat.querySelector('.msg.typing');
+        if (typing) chat.insertBefore(m, typing);
+        else chat.appendChild(m);
+      }
       window.LingjiUI.scrollChatToBottom(false);
     },
 
@@ -576,6 +587,11 @@
         box.hidden = true;
         box.classList.remove('visible', 'stale');
         label.textContent = '';
+        var deskOff = el('deskActivity');
+        if (deskOff) {
+          deskOff.hidden = true;
+          deskOff.classList.remove('stale');
+        }
         removeTyping();
         return;
       }
@@ -586,10 +602,18 @@
         waiting_hitl: '等待审批（见顶部批准条）',
       };
       var shown = textMap[phase] || phase;
-      label.textContent = shown;
       if (stale) {
-        shown = '仍在运行，若久无响应请查看 HITL 或刷新';
-        label.textContent = shown;
+        shown = '仍在运行，若久无响应请查看审批条或刷新';
+      }
+      label.textContent = shown;
+      var desk = el('deskActivity');
+      var deskLabel = el('deskActivityLabel');
+      if (desk) {
+        desk.hidden = false;
+        desk.classList.toggle('stale', !!stale);
+      }
+      if (deskLabel) deskLabel.textContent = shown;
+      if (stale) {
         box.classList.add('stale');
       } else {
         box.classList.remove('stale');

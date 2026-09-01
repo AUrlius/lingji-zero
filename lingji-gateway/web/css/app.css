@@ -247,7 +247,16 @@ body {
   border-left: 3px solid var(--accent);
   padding: 14px 16px;
 }
-.job-card-head { font-weight: 650; margin-bottom: 2px; font-variant-numeric: tabular-nums; }
+.job-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-weight: 650;
+  margin-bottom: 6px;
+  font-variant-numeric: tabular-nums;
+}
+.job-card-id { letter-spacing: 0.02em; }
 .job-card-intent { font-size: 13px; opacity: 0.85; margin-bottom: 6px; }
 .job-card-progress {
   font-size: 13px;
@@ -338,6 +347,36 @@ html.debug-ui .agent-select.debug-only { display: inline-block; }
   background: var(--bg-panel);
 }
 
+.desk-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
+.desk-activity {
+  display: none;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 8px;
+  margin: 0 16px 8px;
+  padding: 8px 12px;
+  border-radius: var(--radius-md);
+  background: var(--bg-session-active);
+  border: 1px solid var(--border);
+  color: var(--accent);
+  font-size: 13px;
+}
+
+.desk-activity:not([hidden]) {
+  display: flex;
+}
+
+.desk-activity.stale {
+  color: var(--text-muted);
+}
+
 .sidebar-overlay {
   display: none;
   position: fixed;
@@ -350,10 +389,10 @@ html.debug-ui .agent-select.debug-only { display: inline-block; }
 
 .hermes-overlay {
   display: none;
-  position: fixed;
+  position: absolute;
   inset: 0;
   background: var(--overlay);
-  z-index: 26;
+  z-index: 6;
 }
 
 .hermes-overlay.open { display: block; }
@@ -604,12 +643,12 @@ html.debug-ui .agent-select.debug-only { display: inline-block; }
 .header-main { flex: 1; text-align: center; min-width: 0; }
 
 .header h1 {
-  font-size: clamp(15px, 4.5vw, 16px);
+  font-size: clamp(15px, 4.5vw, 17px);
   font-weight: 600;
   color: var(--text-primary);
-  white-space: nowrap;
+  line-height: 1.35;
+  max-height: 2.7em;
   overflow: hidden;
-  text-overflow: ellipsis;
   padding: 0 8px;
 }
 
@@ -618,8 +657,8 @@ html.debug-ui .agent-select.debug-only { display: inline-block; }
   flex-wrap: wrap;
   align-items: center;
   justify-content: center;
-  gap: 6px 8px;
-  margin-top: 6px;
+  gap: 8px 10px;
+  margin-top: 8px;
 }
 
 .status {
@@ -635,7 +674,7 @@ html.debug-ui .agent-select.debug-only { display: inline-block; }
   align-items: center;
   justify-content: center;
   gap: 6px;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--accent);
 }
 
@@ -709,7 +748,7 @@ html.debug-ui .agent-select.debug-only { display: inline-block; }
   padding-right: calc(16px + env(safe-area-inset-right, 0px));
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 20px;
   max-width: 48rem;
   width: 100%;
   margin: 0 auto;
@@ -719,8 +758,8 @@ html.debug-ui .agent-select.debug-only { display: inline-block; }
   max-width: 100%;
   padding: 0;
   border-radius: 0;
-  font-size: 15.5px;
-  line-height: 1.65;
+  font-size: 16px;
+  line-height: 1.7;
   word-break: break-word;
   overflow-wrap: anywhere;
 }
@@ -746,7 +785,7 @@ html.debug-ui .agent-select.debug-only { display: inline-block; }
   background: var(--bg-bubble-user);
   color: var(--text-on-accent);
   border-radius: var(--radius-lg) var(--radius-lg) 6px var(--radius-lg);
-  padding: 10px 14px 12px;
+  padding: 12px 16px 14px;
 }
 
 .msg.user .msg-role { color: rgba(255, 255, 255, 0.72); }
@@ -826,7 +865,8 @@ html.debug-ui .agent-select.debug-only { display: inline-block; }
   align-self: stretch;
   max-width: 100%;
   border: 1px solid var(--hitl-border);
-  padding: 14px 16px;
+  border-left: 4px solid var(--hitl-warn);
+  padding: 16px 18px;
   border-radius: 12px;
 }
 
@@ -873,7 +913,7 @@ html.debug-ui .agent-select.debug-only { display: inline-block; }
 
 .hitl-btn.approve { background: var(--hitl-approve); color: var(--text-on-accent); }
 .hitl-btn.reject { background: var(--hitl-reject); color: var(--text-on-accent); }
-.hitl-btn.dismiss { background: transparent; color: var(--text-secondary); border: 1px solid var(--border-subtle); }
+.hitl-btn.dismiss { background: transparent; color: var(--text-secondary); border: 1px solid var(--border-strong); }
 .hitl-btn:disabled { opacity: 0.45; cursor: not-allowed; }
 
 .attachments { margin-top: 8px; display: flex; flex-direction: column; gap: 6px; }
@@ -1143,11 +1183,13 @@ html.debug-ui .agent-select.debug-only { display: inline-block; }
   display: none;
   flex-direction: column;
   gap: 8px;
-  padding: 8px 12px;
-  background: var(--bg-hitl);
+  padding: 10px 16px 12px;
+  background: var(--bg-panel);
   border-bottom: 1px solid var(--hitl-border);
   max-height: 40vh;
   overflow-y: auto;
+  position: relative;
+  z-index: 8;
 }
 
 .hitl-dock.visible {

@@ -19,7 +19,8 @@ web/
 |----|------|
 | `sidebarOverlay` | 侧栏遮罩 |
 | `sidebar` | 侧栏容器 |
-| `hermesOverlay` | 机要栏窄屏遮罩 |
+| `deskActivity` | 交办后「已收到/处理中」条（不挡 HITL） |
+| `hermesOverlay` | 窄屏机要遮罩（仅盖对话+输入，不盖批准条） |
 | `hermesPane` | 右侧机要栏（默认收起） |
 | `hermesPresence` | 顶栏机要状态 |
 | `btnHermesPane` | 展开/收起机要栏（不等于启停） |
