@@ -105,7 +105,7 @@
       window.LingjiUI.appendMessage('system', text);
     },
 
-    showHitlCard: function (payload, onDecision) {
+    showHitlCard: function (payload, onDecision, onDismiss) {
       const taskId = payload.task_id || '';
       const dock = el('hitlDock');
       if (!dock) return;
@@ -119,7 +119,7 @@
 
       const title = document.createElement('div');
       title.className = 'hitl-title';
-      title.textContent = '⚠️ 危险操作需审批';
+      title.textContent = '需您授权';
       m.appendChild(title);
 
       if (payload.agent_id || payload.agent_label) {
@@ -160,9 +160,15 @@
       btnReject.className = 'hitl-btn reject';
       btnReject.textContent = '拒绝';
 
+      const btnDismiss = document.createElement('button');
+      btnDismiss.type = 'button';
+      btnDismiss.className = 'hitl-btn dismiss';
+      btnDismiss.textContent = '放弃此审批';
+
       function decide(decision) {
         btnApprove.disabled = true;
         btnReject.disabled = true;
+        btnDismiss.disabled = true;
         statusEl.textContent = decision === 'approved' ? '已提交批准，等待 Agent 继续…' : '已提交拒绝';
         statusEl.style.color = decision === 'approved' ? '#4caf50' : '#ef5350';
         if (onDecision) onDecision(taskId, decision);
@@ -170,9 +176,18 @@
 
       btnApprove.addEventListener('click', function () { decide('approved'); });
       btnReject.addEventListener('click', function () { decide('rejected'); });
+      btnDismiss.addEventListener('click', function () {
+        btnApprove.disabled = true;
+        btnReject.disabled = true;
+        btnDismiss.disabled = true;
+        statusEl.textContent = '已放弃此审批';
+        statusEl.style.color = '#ffb74d';
+        if (onDismiss) onDismiss(taskId);
+      });
 
       actions.appendChild(btnApprove);
       actions.appendChild(btnReject);
+      actions.appendChild(btnDismiss);
       m.appendChild(actions);
       m.appendChild(statusEl);
       dock.appendChild(m);
@@ -186,7 +201,80 @@
       dock.classList.remove('visible');
     },
 
-    renderSessionList: function (sessions, activeThreadId, onSelect, agentLabelFn) {
+    renderJobList: function (jobs, onSelect) {
+      const list = el('jobList');
+      if (!list) return;
+      list.innerHTML = '';
+      (jobs || []).forEach(function (j) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'job-item job-' + (j.status || 'planned');
+        const id = document.createElement('span');
+        id.className = 'job-id';
+        id.textContent = j.job_id || '';
+        const st = document.createElement('span');
+        st.className = 'job-status';
+        st.textContent = j.status || '';
+        const intent = document.createElement('span');
+        intent.className = 'job-intent';
+        intent.textContent = j.intent || j.playbook || '';
+        btn.appendChild(id);
+        btn.appendChild(st);
+        btn.appendChild(intent);
+        if (typeof onSelect === 'function') {
+          btn.addEventListener('click', function () { onSelect(j); });
+        }
+        list.appendChild(btn);
+      });
+      if (!(jobs || []).length) {
+        const empty = document.createElement('div');
+        empty.className = 'job-empty';
+        empty.textContent = '暂无工单';
+        list.appendChild(empty);
+      }
+    },
+
+    upsertJobCard: function (job) {
+      const chat = el('chat');
+      if (!chat || !job || !job.job_id) return;
+      var existing = chat.querySelector('.msg.job-card[data-job-id="' + job.job_id + '"]');
+      const m = existing || document.createElement('div');
+      m.className = 'msg job-card';
+      m.dataset.jobId = job.job_id;
+      m.innerHTML = '';
+      const head = document.createElement('div');
+      head.className = 'job-card-head';
+      head.textContent = (job.job_id || '') + ' · ' + (job.status || '');
+      m.appendChild(head);
+      if (job.intent) {
+        const intent = document.createElement('div');
+        intent.className = 'job-card-intent';
+        intent.textContent = job.intent;
+        m.appendChild(intent);
+      }
+      const ul = document.createElement('ul');
+      ul.className = 'job-steps';
+      (job.steps || []).forEach(function (st) {
+        const li = document.createElement('li');
+        li.className = 'job-step job-step-' + (st.status || 'pending');
+        var mark = '○';
+        if (st.status === 'completed') mark = '✓';
+        else if (st.status === 'failed') mark = '✕';
+        else if (st.status === 'running' || st.status === 'dispatched') mark = '…';
+        li.textContent = mark + ' ' + (st.name || st.step_id) + ' · ' + (st.status || '');
+        ul.appendChild(li);
+      });
+      m.appendChild(ul);
+      if (!existing) chat.appendChild(m);
+      window.LingjiUI.scrollChatToBottom(false);
+    },
+
+    setStaffPresence: function (text) {
+      const n = el('staffPresence');
+      if (n) n.textContent = text || '';
+    },
+
+    renderSessionList: function (sessions, activeThreadId, onSelect, agentLabelFn, formatTimeFn) {
       const list = el('sessionList');
       if (!list) return;
       list.innerHTML = '';
@@ -194,10 +282,19 @@
         const btn = document.createElement('button');
         btn.type = 'button';
         btn.className = 'session-item' + ((s.thread_id === activeThreadId || s.active) ? ' active' : '');
+        const main = document.createElement('div');
+        main.className = 'session-main';
         const title = document.createElement('span');
         title.className = 'session-title';
-        title.textContent = s.title || '新对话';
-        btn.appendChild(title);
+        title.textContent = s.title || '新交办';
+        main.appendChild(title);
+        if (formatTimeFn && s.updated_at) {
+          const time = document.createElement('span');
+          time.className = 'session-time';
+          time.textContent = formatTimeFn(s.updated_at);
+          main.appendChild(time);
+        }
+        btn.appendChild(main);
         if (s.agent_id && agentLabelFn) {
           const badge = document.createElement('span');
           badge.className = 'session-agent';

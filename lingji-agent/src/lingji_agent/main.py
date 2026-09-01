@@ -47,6 +47,7 @@ from lingji_agent.execution.hitl import (
     thread_has_pending_hitl,
 )
 from lingji_agent.foundation.db import (
+    expire_hitl_session_by_task_id,
     get_pending_hitl_session_by_task_id,
     get_pending_hitl_sessions_with_checkpoints,
     get_active_chat_thread,
@@ -299,16 +300,18 @@ async def main(config_path: str | None = None):
                 guardians = config.scheduler.guardian_executor_ids or ["lingji-pc"]
                 g = "、".join(guardians)
                 return (
-                    f"本机 {config.network.device_id} 是用户的**调度 Agent**（对话面）。"
-                    f"值守执行机：{g}。跨机传文件、远程运维须建 LJ-* Job 并委派，"
-                    "对用户给一句话结案。"
+                    f"本机 {config.network.device_id} 是用户的**秘书（调度 Agent）**。"
+                    f"值守执行机：{g}。"
+                    "跨机传文件用 fleet_send_file；运维用 job_invoke(playbook=agent.status 等)。"
+                    "禁止本机 execute_command 做 find/重启/发给青铜剑。"
+                    "对用户给一句话结案并带 LJ-*。"
                 )
             sched = (config.scheduler.scheduler_agent_id or "").strip()
             if sched and sched != config.network.device_id:
                 return (
-                    f"本机 {config.network.device_id} 是**值守执行机**。"
-                    f"用户对话面为调度 Agent {sched}；执行 step 并 REPORT，"
-                    "勿越权替调度回答总体意图。"
+                    f"本机 {config.network.device_id} 是**工位分机（执行机）**。"
+                    f"用户对话面为秘书 {sched}。收到 JOB_DELEGATE 后跑 playbook 并 REPORT，"
+                    "勿越权替秘书对用户说话。"
                 )
             return ""
 
@@ -598,6 +601,7 @@ async def main(config_path: str | None = None):
                 "（可能 Agent 曾重启）。请重新发送指令。",
                 target_device_id=device_id,
                 target_user_id=user_id,
+                hitl_stale_task_id=task_id,
             )
 
         async def _resume_from_hitl(
@@ -613,6 +617,7 @@ async def main(config_path: str | None = None):
                 pending = await _ensure_pending_run(task_id)
                 if pending is None:
                     logger.warning("HITL resume 失败: task=%s 无 pending 上下文", task_id)
+                    expire_hitl_session_by_task_id(db, task_id, "stale")
                     await _notify_hitl_resume_lost(
                         task_id,
                         target_device_id=hint_device_id,
@@ -625,10 +630,12 @@ async def main(config_path: str | None = None):
                         "GAP-002: thread=%s 无 LangGraph interrupt，无法 Command(resume)",
                         pending.thread_id,
                     )
+                    expire_hitl_session_by_task_id(db, task_id, "stale")
                     await _send_agent_reply(
                         "❌ 无法恢复挂起的审批：Agent 状态已丢失，请重新发送指令。",
                         target_device_id=pending.device_id,
                         target_user_id=_pending_user_id(pending),
+                        hitl_stale_task_id=task_id,
                     )
                     hitl_mgr.resolve_interrupt(task_id, "error")
                     pending_runs.pop(task_id, None)
@@ -1112,6 +1119,72 @@ async def main(config_path: str | None = None):
 
         router.register(MsgType.FLEET_RELAY_BY_ID, on_fleet_relay_by_id)
 
+        async def on_job_delegate(msg: Message):
+            p = msg.payload or {}
+            executor = (p.get("executor_id") or "").strip()
+            if executor and executor != config.network.device_id:
+                return
+            job_id = p.get("job_id") or ""
+            step_id = p.get("step_id") or ""
+            playbook_id = p.get("playbook_id") or ""
+            scope = p.get("approval_scope")
+            from lingji_agent.execution.approval_scope import validate_playbook
+            from lingji_agent.execution.playbook_runner import run_playbook
+            from lingji_agent.network.job_client import report_job_step
+
+            ok, reason = validate_playbook(
+                scope if isinstance(scope, dict) else None,
+                playbook_id,
+            )
+            if not ok:
+                logger.warning("JOB_DELEGATE scope reject job=%s: %s", job_id, reason)
+                await report_job_step(job_id, step_id, status="failed", error=reason)
+                return
+            logger.info("JOB_DELEGATE run playbook=%s job=%s", playbook_id, job_id)
+            from lingji_agent.execution.pending_job_report import (
+                clear_pending,
+                default_data_dir,
+                should_defer_report,
+                write_pending,
+            )
+
+            if should_defer_report(playbook_id):
+                write_pending(
+                    default_data_dir(),
+                    job_id=job_id,
+                    step_id=step_id,
+                    playbook_id=playbook_id,
+                    evidence={"deferred": True},
+                )
+                logger.info("JOB_DELEGATE defer report until restart job=%s", job_id)
+                result = await run_playbook(playbook_id)
+                clear_pending(default_data_dir())
+                if result.get("ok"):
+                    await report_job_step(job_id, step_id, status="completed", evidence=result)
+                else:
+                    await report_job_step(
+                        job_id,
+                        step_id,
+                        status="failed",
+                        evidence=result,
+                        error=str(result.get("error") or "playbook failed"),
+                    )
+                return
+
+            result = await run_playbook(playbook_id)
+            if result.get("ok"):
+                await report_job_step(job_id, step_id, status="completed", evidence=result)
+            else:
+                await report_job_step(
+                    job_id,
+                    step_id,
+                    status="failed",
+                    evidence=result,
+                    error=str(result.get("error") or "playbook failed"),
+                )
+
+        router.register(MsgType.JOB_DELEGATE, on_job_delegate)
+
         async def on_hitl_res(msg: Message):
             decision = msg.payload.get("decision", "rejected")
             task_id = msg.payload.get("task_id", "")
@@ -1132,7 +1205,32 @@ async def main(config_path: str | None = None):
             logger.info("已连接到灵机 Gateway")
             tools = [t.name for t in registry.list_all()]
             logger.info("可用工具: %s", ", ".join(tools) if tools else "（无）")
+            asyncio.create_task(_flush_restart_report())
             asyncio.create_task(_recover_pending())
+
+        async def _flush_restart_report():
+            from lingji_agent.execution.pending_job_report import (
+                default_data_dir,
+                flush_pending_report,
+            )
+            from lingji_agent.network.job_client import report_job_step as _report_job_step
+
+            async def _reporter(job_id, step_id, *, status, evidence=None, error=""):
+                return await _report_job_step(
+                    job_id,
+                    step_id,
+                    status=status,
+                    evidence=evidence,
+                    error=error,
+                    host=config.network.gateway_host,
+                    port=config.network.gateway_port,
+                    auth_token=config.network.auth_token,
+                )
+
+            out = await flush_pending_report(default_data_dir(), reporter=_reporter)
+            if out.get("skipped"):
+                return
+            logger.info("重启后补报: %s", out)
 
         async def _recover_pending():
             sessions = get_pending_hitl_sessions_with_checkpoints(db)

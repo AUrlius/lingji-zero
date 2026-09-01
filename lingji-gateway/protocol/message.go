@@ -21,6 +21,7 @@ const (
 	MsgFleetDeliver   MsgType = "FLEET_DELIVER"
 	MsgFleetAck       MsgType = "FLEET_ACK"
 	MsgFleetRelayByID MsgType = "FLEET_RELAY_BY_ID"
+	MsgJobDelegate    MsgType = "JOB_DELEGATE"
 )
 
 // Message 协议消息（与 Python protocol.py Message 对齐）

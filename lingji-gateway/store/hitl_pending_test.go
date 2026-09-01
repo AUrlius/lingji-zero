@@ -69,4 +69,17 @@ func TestHitlPendingUpsertListResolve(t *testing.T) {
 	if len(items) != 0 {
 		t.Fatalf("after resolve pending len = %d, want 0", len(items))
 	}
+
+	// Re-broadcast HITL_REQ must not resurrect a resolved approval.
+	entry.Status = "pending"
+	if err := hitl.UpsertPending(entry); err != nil {
+		t.Fatal(err)
+	}
+	items, err = hitl.ListPending("user-abc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 0 {
+		t.Fatalf("resolved HITL must not reopen on UpsertPending, pending len = %d", len(items))
+	}
 }

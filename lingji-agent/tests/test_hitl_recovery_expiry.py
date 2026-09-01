@@ -22,6 +22,12 @@ def test_hitl_remaining_seconds_zero_when_past_timeout():
 
 
 def test_find_pending_hitl_ignores_expired_session():
+    from lingji_agent.execution.hitl import find_pending_hitl_for_thread
+
+    class _Pending:
+        thread_id = "phone-1:thread-x"
+        device_id = "phone-1"
+
     conn = init_db(":memory:")
     save_checkpoint(conn, "cp-exp", "phone-1:thread-x", {"messages": []}, status="running")
     conn.execute(
@@ -29,10 +35,11 @@ def test_find_pending_hitl_ignores_expired_session():
            VALUES ('h-exp', 'cp-exp', 'task-exp', 'delete', 'critical', 'pending')"""
     )
     conn.commit()
-    assert find_pending_hitl_for_thread(conn, "phone-1:thread-x", {}) is not None
+    pending_runs = {"task-exp": _Pending()}
+    assert find_pending_hitl_for_thread(conn, "phone-1:thread-x", pending_runs) is not None
 
     update_hitl_session(conn, "h-exp", "expired")
-    assert find_pending_hitl_for_thread(conn, "phone-1:thread-x", {}) is None
+    assert find_pending_hitl_for_thread(conn, "phone-1:thread-x", pending_runs) is None
 
 
 def test_find_pending_hitl_ignores_timeout_session():

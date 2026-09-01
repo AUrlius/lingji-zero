@@ -24,7 +24,8 @@ type Job struct {
 	UpdatedAt         string         `json:"updated_at"`
 	ClosedAt          string         `json:"closed_at,omitempty"`
 	Steps             []JobStep      `json:"steps,omitempty"`
-	TransferIDs       []string       `json:"transfer_ids,omitempty"`
+	TransferIDs       []string         `json:"transfer_ids,omitempty"`
+	ApprovalScope     map[string]any   `json:"approval_scope,omitempty"`
 }
 
 // JobStep is an L2 delegated step.
@@ -69,7 +70,8 @@ func (s *JobStore) migrate() error {
 			summary TEXT NOT NULL DEFAULT '',
 			created_at TEXT NOT NULL,
 			updated_at TEXT NOT NULL,
-			closed_at TEXT NOT NULL DEFAULT ''
+			closed_at TEXT NOT NULL DEFAULT '',
+			approval_scope_json TEXT NOT NULL DEFAULT '{}'
 		);
 		CREATE INDEX IF NOT EXISTS idx_fleet_jobs_user
 			ON fleet_jobs(user_id, updated_at DESC);
@@ -98,6 +100,26 @@ func (s *JobStore) migrate() error {
 			created_at TEXT NOT NULL
 		);
 	`)
+	if err != nil {
+		return err
+	}
+	return s.ensureApprovalScopeColumn()
+}
+
+func (s *JobStore) ensureApprovalScopeColumn() error {
+	var n int
+	err := s.db.QueryRow(
+		`SELECT COUNT(*) FROM pragma_table_info('fleet_jobs') WHERE name='approval_scope_json'`,
+	).Scan(&n)
+	if err != nil {
+		return err
+	}
+	if n > 0 {
+		return nil
+	}
+	_, err = s.db.Exec(
+		`ALTER TABLE fleet_jobs ADD COLUMN approval_scope_json TEXT NOT NULL DEFAULT '{}'`,
+	)
 	return err
 }
 
@@ -116,6 +138,19 @@ type CreateJobInput struct {
 	Intent           string
 	Playbook         string
 	Plan             map[string]any
+	ApprovalScope    map[string]any
+}
+
+func DefaultApprovalScope(playbook string) map[string]any {
+	if playbook == "" {
+		playbook = "fleet.file_transfer"
+	}
+	return map[string]any{
+		"expires_at":          time.Now().UTC().Add(time.Hour).Format(time.RFC3339),
+		"playbooks":           []any{playbook},
+		"allowed_paths":       []any{"/mnt/e/LingjiPlan/LingjiZero"},
+		"auto_approve_tier0":  true,
+	}
 }
 
 // CreateJob mints LJ-* and playbook steps.
@@ -133,6 +168,11 @@ func (s *JobStore) CreateJob(in CreateJobInput) (*Job, error) {
 		plan = map[string]any{}
 	}
 	planJSON, _ := json.Marshal(plan)
+	scope := in.ApprovalScope
+	if len(scope) == 0 {
+		scope = DefaultApprovalScope(in.Playbook)
+	}
+	scopeJSON, _ := json.Marshal(scope)
 	steps := buildPlaybookSteps(jobID, in.Playbook, plan)
 
 	tx, err := s.db.Begin()
@@ -144,10 +184,10 @@ func (s *JobStore) CreateJob(in CreateJobInput) (*Job, error) {
 	_, err = tx.Exec(`
 		INSERT INTO fleet_jobs (
 			job_id, user_id, scheduler_agent_id, intent, playbook,
-			status, plan_json, summary, created_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, 'planned', ?, '', ?, ?)`,
+			status, plan_json, summary, created_at, updated_at, approval_scope_json
+		) VALUES (?, ?, ?, ?, ?, 'planned', ?, '', ?, ?, ?)`,
 		jobID, in.UserID, in.SchedulerAgentID, in.Intent, in.Playbook,
-		string(planJSON), now, now,
+		string(planJSON), now, now, string(scopeJSON),
 	)
 	if err != nil {
 		return nil, err
@@ -196,16 +236,30 @@ func (s *JobStore) CreateJob(in CreateJobInput) (*Job, error) {
 }
 
 func buildPlaybookSteps(jobID, playbook string, plan map[string]any) []JobStep {
-	if playbook != "fleet.file_transfer" {
-		return nil
+	if playbook == "fleet.file_transfer" {
+		sender, _ := plan["sender_agent_id"].(string)
+		receiver, _ := plan["receiver_agent_id"].(string)
+		return []JobStep{
+			{StepID: jobID + "-S1", JobID: jobID, Name: "resolve_targets", Status: "pending", Mandatory: true, SortOrder: 1},
+			{StepID: jobID + "-S2", JobID: jobID, Name: "locate_and_upload", ExecutorID: sender, Status: "pending", Mandatory: true, SortOrder: 2},
+			{StepID: jobID + "-S3", JobID: jobID, Name: "relay_deliver", ExecutorID: sender, Status: "pending", Mandatory: true, SortOrder: 3},
+			{StepID: jobID + "-S4", JobID: jobID, Name: "receive_machine", ExecutorID: receiver, Status: "pending", Mandatory: true, SortOrder: 4},
+		}
 	}
-	sender, _ := plan["sender_agent_id"].(string)
-	receiver, _ := plan["receiver_agent_id"].(string)
+	executor, _ := plan["executor_id"].(string)
+	if executor == "" {
+		executor = "lingji-pc"
+	}
 	return []JobStep{
-		{StepID: jobID + "-S1", JobID: jobID, Name: "resolve_targets", Status: "pending", Mandatory: true, SortOrder: 1},
-		{StepID: jobID + "-S2", JobID: jobID, Name: "locate_and_upload", ExecutorID: sender, Status: "pending", Mandatory: true, SortOrder: 2},
-		{StepID: jobID + "-S3", JobID: jobID, Name: "relay_deliver", ExecutorID: sender, Status: "pending", Mandatory: true, SortOrder: 3},
-		{StepID: jobID + "-S4", JobID: jobID, Name: "receive_machine", ExecutorID: receiver, Status: "pending", Mandatory: true, SortOrder: 4},
+		{
+			StepID:     jobID + "-S1",
+			JobID:      jobID,
+			Name:       "run_playbook",
+			ExecutorID: executor,
+			Status:     "pending",
+			Mandatory:  true,
+			SortOrder:  1,
+		},
 	}
 }
 
@@ -220,15 +274,16 @@ func boolToInt(b bool) int {
 func (s *JobStore) GetJob(jobID string) (*Job, error) {
 	row := s.db.QueryRow(`
 		SELECT job_id, user_id, scheduler_agent_id, intent, playbook, status,
-		       plan_json, summary, created_at, updated_at, closed_at
+		       plan_json, summary, created_at, updated_at, closed_at, approval_scope_json
 		FROM fleet_jobs WHERE job_id=?`, jobID,
 	)
 	var j Job
 	var planJSON string
 	var closedAt string
+	var scopeJSON string
 	err := row.Scan(
 		&j.JobID, &j.UserID, &j.SchedulerAgentID, &j.Intent, &j.Playbook, &j.Status,
-		&planJSON, &j.Summary, &j.CreatedAt, &j.UpdatedAt, &closedAt,
+		&planJSON, &j.Summary, &j.CreatedAt, &j.UpdatedAt, &closedAt, &scopeJSON,
 	)
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("job not found")
@@ -238,6 +293,9 @@ func (s *JobStore) GetJob(jobID string) (*Job, error) {
 	}
 	j.ClosedAt = closedAt
 	_ = json.Unmarshal([]byte(planJSON), &j.Plan)
+	if scopeJSON != "" && scopeJSON != "{}" {
+		_ = json.Unmarshal([]byte(scopeJSON), &j.ApprovalScope)
+	}
 
 	steps, err := s.listSteps(jobID)
 	if err != nil {
@@ -415,8 +473,175 @@ func formatJobCompleteSummary(j *Job) string {
 	if receiverLabel == "" {
 		receiverLabel = receiver
 	}
+	if sender == "" && receiver == "" {
+		if j.Intent != "" {
+			return fmt.Sprintf("%s 已完成。%s", j.JobID, j.Intent)
+		}
+		return fmt.Sprintf("%s 已完成。", j.JobID)
+	}
 	return fmt.Sprintf(
 		"%s 已完成。%s → %s：%s 已保存至接收机 Incoming。",
 		j.JobID, senderLabel, receiverLabel, hint,
 	)
+}
+
+func (s *JobStore) ListJobs(userID string, limit int) ([]*Job, error) {
+	if userID == "" {
+		return nil, fmt.Errorf("user_id required")
+	}
+	if limit <= 0 || limit > 100 {
+		limit = 30
+	}
+	rows, err := s.db.Query(`
+		SELECT job_id FROM fleet_jobs WHERE user_id=?
+		ORDER BY updated_at DESC LIMIT ?`, userID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	out := make([]*Job, 0, len(ids))
+	for _, id := range ids {
+		j, err := s.GetJob(id)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, j)
+	}
+	return out, nil
+}
+
+type ReportStepInput struct {
+	Status   string
+	Evidence map[string]any
+	Error    string
+}
+
+func (s *JobStore) ReportStep(jobID, stepID string, in ReportStepInput) (*Job, error) {
+	if jobID == "" || stepID == "" {
+		return nil, fmt.Errorf("job_id and step_id required")
+	}
+	status := in.Status
+	if status != "completed" && status != "failed" {
+		return nil, fmt.Errorf("status must be completed or failed")
+	}
+	now := time.Now().UTC().Format(time.RFC3339)
+	ev, _ := json.Marshal(in.Evidence)
+	if ev == nil {
+		ev = []byte("{}")
+	}
+	res, err := s.db.Exec(`
+		UPDATE fleet_job_steps SET status=?, evidence_json=?, error_text=?,
+			completed_at=?, started_at=COALESCE(NULLIF(started_at,''), ?)
+		WHERE step_id=? AND job_id=?`,
+		status, string(ev), in.Error, now, now, stepID, jobID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return nil, fmt.Errorf("step not found")
+	}
+	if status == "failed" {
+		summary := fmt.Sprintf("%s 失败：%s", jobID, in.Error)
+		if in.Error == "" {
+			summary = fmt.Sprintf("%s 失败。", jobID)
+		}
+		_, err = s.db.Exec(`
+			UPDATE fleet_jobs SET status='failed', summary=?, updated_at=?, closed_at=?
+			WHERE job_id=?`, summary, now, now, jobID)
+		if err != nil {
+			return nil, err
+		}
+		return s.GetJob(jobID)
+	}
+	_, _ = s.db.Exec(`UPDATE fleet_jobs SET status='running', updated_at=? WHERE job_id=? AND status IN ('planned','created')`, now, jobID)
+	return s.finalizeJobIfDone(jobID)
+}
+
+func (s *JobStore) DispatchStep(jobID, stepID, executorID string) (*Job, error) {
+	if jobID == "" {
+		return nil, fmt.Errorf("job_id required")
+	}
+	job, err := s.GetJob(jobID)
+	if err != nil {
+		return nil, err
+	}
+	if stepID == "" {
+		for _, st := range job.Steps {
+			if st.Status == "pending" {
+				stepID = st.StepID
+				if executorID == "" {
+					executorID = st.ExecutorID
+				}
+				break
+			}
+		}
+	}
+	if stepID == "" {
+		return nil, fmt.Errorf("no pending step")
+	}
+	if executorID == "" {
+		executorID = "lingji-pc"
+	}
+	now := time.Now().UTC().Format(time.RFC3339)
+	_, err = s.db.Exec(`
+		UPDATE fleet_job_steps SET status='dispatched', executor_id=?,
+			started_at=COALESCE(NULLIF(started_at,''), ?)
+		WHERE step_id=? AND job_id=? AND status IN ('pending','dispatched')`,
+		executorID, now, stepID, jobID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	_, err = s.db.Exec(`UPDATE fleet_jobs SET status='running', updated_at=? WHERE job_id=?`, now, jobID)
+	if err != nil {
+		return nil, err
+	}
+	return s.GetJob(jobID)
+}
+
+func (s *JobStore) FailStaleDispatched(timeout time.Duration) ([]*Job, error) {
+	if timeout <= 0 {
+		timeout = 30 * time.Minute
+	}
+	cutoff := time.Now().UTC().Add(-timeout).Format(time.RFC3339)
+	rows, err := s.db.Query(`
+		SELECT DISTINCT job_id FROM fleet_job_steps
+		WHERE status='dispatched' AND started_at != '' AND started_at < ?`, cutoff)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	var out []*Job
+	now := time.Now().UTC().Format(time.RFC3339)
+	for _, id := range ids {
+		_, _ = s.db.Exec(`
+			UPDATE fleet_job_steps SET status='failed', error_text='dispatch timeout',
+				completed_at=? WHERE job_id=? AND status='dispatched'`, now, id)
+		_, _ = s.db.Exec(`
+			UPDATE fleet_jobs SET status='failed', summary=?, updated_at=?, closed_at=?
+			WHERE job_id=?`, id+" 失败：执行机无回执", now, now, id)
+		j, err := s.GetJob(id)
+		if err == nil {
+			out = append(out, j)
+		}
+	}
+	return out, nil
 }

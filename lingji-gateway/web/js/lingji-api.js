@@ -80,10 +80,12 @@
   var CACHE_SESSIONS = 'lingji_sessions_v2_' + USER_ID;
   var CACHE_ACTIVE_PREFIX = 'lingji_active_v3_' + USER_ID + '_';
   var CACHE_HITL_QUEUE = 'lingji_hitl_res_queue_v1_' + USER_ID;
-  var CACHE_HITL_PENDING = 'lingji_hitl_pending_v1_' + USER_ID;
+  var CACHE_HITL_PENDING = 'lingji_hitl_pending_v2_' + USER_ID;
+  var HITL_PENDING_TTL_MS = 6 * 60 * 60 * 1000;
   var CACHE_TARGET_AGENT = 'lingji_target_agent_v2';
 
   var DEFAULT_AGENT_ID = 'lingji-laptop';
+  var EXECUTOR_AGENT_ID = 'lingji-pc';
   var AGENT_LABELS = {
     'lingji-pc': '青铜剑',
     'lingji-laptop': '空城记',
@@ -94,6 +96,9 @@
   };
 
   var DEBUG_UI = new URLSearchParams(location.search).has('debug');
+  if (DEBUG_UI) {
+    try { document.documentElement.classList.add('debug-ui'); } catch (e) {}
+  }
 
   var ws = null;
   var msgId = 0;
@@ -109,7 +114,13 @@
   var pendingSwitchThreadId = null;
   var onlineAgents = [];
   var selectedAgentId = localStorage.getItem(CACHE_TARGET_AGENT) || DEFAULT_AGENT_ID;
+  if (!DEBUG_UI) selectedAgentId = DEFAULT_AGENT_ID;
   var hitlPollTimer = null;
+  var jobPollTimer = null;
+  var trackedJobs = {};
+  var JOB_ACTIVE_STATUS = {
+    planned: 1, created: 1, running: 1, dispatched: 1, waiting: 1,
+  };
   var activityStaleTimer = null;
   var ACTIVITY_STALE_MS = 90000;
 
@@ -163,16 +174,47 @@
       if (merged.length) {
         saveHistoryCache(threadId, merged, agentId);
         UI().renderHistory(merged);
+        restoreJobCards();
       }
       restoreHitlDock();
       return merged;
     });
   }
 
+  function formatRelativeTime(raw) {
+    if (!raw) return '';
+    var d = new Date(raw);
+    if (isNaN(d.getTime())) {
+      d = new Date(String(raw).replace(' ', 'T') + 'Z');
+    }
+    if (isNaN(d.getTime())) return '';
+    var sec = Math.floor((Date.now() - d.getTime()) / 1000);
+    if (sec < 60) return '刚刚';
+    if (sec < 3600) return Math.floor(sec / 60) + ' 分钟前';
+    if (sec < 86400) return Math.floor(sec / 3600) + ' 小时前';
+    if (sec < 604800) return Math.floor(sec / 86400) + ' 天前';
+    return d.toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' });
+  }
+
+  function sortSessions(list) {
+    return (list || []).slice().sort(function (a, b) {
+      var ta = String(a.updated_at || '');
+      var tb = String(b.updated_at || '');
+      if (ta !== tb) return tb.localeCompare(ta);
+      return String(b.thread_id || '').localeCompare(String(a.thread_id || ''));
+    });
+  }
+
   function loadHitlPendingList() {
     try {
       var raw = localStorage.getItem(CACHE_HITL_PENDING);
-      return raw ? JSON.parse(raw) : [];
+      if (!raw) return [];
+      var list = JSON.parse(raw);
+      if (!Array.isArray(list)) return [];
+      var now = Date.now();
+      return list.filter(function (item) {
+        return item && item.task_id && (!item.ts || (now - item.ts) < HITL_PENDING_TTL_MS);
+      });
     } catch (e) {
       return [];
     }
@@ -211,6 +253,45 @@
     }
   }
 
+  async function resolveHitlOnGateway(taskId, decision) {
+    if (!GATEWAY_TOKEN || !taskId) return;
+    var base = getApiBase();
+    var url = base + '/v1/hitl/respond?token=' + encodeURIComponent(GATEWAY_TOKEN);
+    try {
+      await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: 'Bearer ' + GATEWAY_TOKEN,
+        },
+        body: JSON.stringify({
+          task_id: taskId,
+          decision: decision || 'rejected',
+        }),
+      });
+    } catch (e) {}
+  }
+
+  function dismissStaleHitl(taskId, agentId) {
+    if (!taskId) return;
+    removeHitlPending(taskId);
+    resolveHitlOnGateway(taskId, 'rejected');
+    if (isOnline()) {
+      ws.send(JSON.stringify({
+        msg_id: 'hitl-dismiss-' + (++msgId),
+        msg_type: 'HITL_RES',
+        device_id: CONNECTION_ID,
+        timestamp: Date.now() / 1000,
+        payload: withTargetAgent({
+          task_id: taskId,
+          decision: 'rejected',
+          target_agent_id: agentId || getSelectedAgentId(),
+        }),
+      }));
+    }
+    UI().appendSystem('已放弃无法恢复的审批，可重新发送指令。');
+  }
+
   function hitlPayloadWithAgent(payload) {
     var out = Object.assign({}, payload || {});
     if (!out.agent_id) {
@@ -243,6 +324,7 @@
           ? '已记录批准，连接恢复后将自动提交'
           : '已记录拒绝，连接恢复后将自动提交'
       );
+      resolveHitlOnGateway(taskId, decision);
       return;
     }
     ws.send(JSON.stringify({
@@ -257,6 +339,29 @@
       }),
     }));
     removeHitlPending(taskId);
+    resolveHitlOnGateway(taskId, decision);
+  }
+
+  function syncHitlPendingFromGateway(items) {
+    var oldById = {};
+    loadHitlPendingList().forEach(function (x) {
+      if (x && x.task_id) oldById[x.task_id] = x;
+    });
+    var now = Date.now();
+    var list = (items || []).map(function (item) {
+      var prev = oldById[item.task_id];
+      return {
+        task_id: item.task_id,
+        description: item.description,
+        tool: item.tool,
+        risk_level: item.risk_level,
+        agent_id: item.agent_id,
+        thread_id: item.thread_id,
+        ts: (prev && prev.ts) || now,
+      };
+    });
+    saveHitlPendingList(list);
+    restoreHitlDock();
   }
 
   async function fetchHitlPendingFromGateway() {
@@ -271,18 +376,7 @@
       if (!resp.ok) return;
       var data = await resp.json();
       var items = Array.isArray(data.pending) ? data.pending : [];
-      items.forEach(function (item) {
-        upsertHitlPending({
-          task_id: item.task_id,
-          description: item.description,
-          tool: item.tool,
-          risk_level: item.risk_level,
-          agent_id: item.agent_id,
-          thread_id: item.thread_id,
-          ts: Date.now(),
-        });
-      });
-      restoreHitlDock();
+      syncHitlPendingFromGateway(items);
     } catch (e) {}
   }
 
@@ -297,6 +391,76 @@
     if (hitlPollTimer) {
       clearInterval(hitlPollTimer);
       hitlPollTimer = null;
+    }
+  }
+
+  function jobIsActive(job) {
+    return !!(job && JOB_ACTIVE_STATUS[job.status]);
+  }
+
+  function renderTrackedJobList() {
+    var jobs = Object.keys(trackedJobs).map(function (id) { return trackedJobs[id]; });
+    jobs.sort(function (a, b) {
+      return String(b.updated_at || '').localeCompare(String(a.updated_at || ''));
+    });
+    UI().renderJobList(jobs, function (job) {
+      applyJob(job, true);
+    });
+  }
+
+  function restoreJobCards() {
+    Object.keys(trackedJobs).forEach(function (id) {
+      var job = trackedJobs[id];
+      if (jobIsActive(job)) UI().upsertJobCard(job);
+    });
+  }
+
+  function applyJob(job, showCard) {
+    if (!job || !job.job_id) return;
+    trackedJobs[job.job_id] = job;
+    renderTrackedJobList();
+    if (showCard || jobIsActive(job)) {
+      UI().upsertJobCard(job);
+    }
+  }
+
+  function applyJobProgress(p) {
+    var job = (p && p.job) || null;
+    if (!job && p && p.job_id) {
+      job = trackedJobs[p.job_id] || { job_id: p.job_id, status: p.status, intent: p.text };
+    }
+    applyJob(job, true);
+  }
+
+  async function fetchJobsFromGateway() {
+    if (!GATEWAY_TOKEN || !USER_ID) return;
+    var base = getApiBase();
+    var url = base + '/v1/jobs?user_id=' + encodeURIComponent(USER_ID)
+      + '&token=' + encodeURIComponent(GATEWAY_TOKEN);
+    try {
+      var resp = await fetch(url, {
+        headers: { Authorization: 'Bearer ' + GATEWAY_TOKEN },
+      });
+      if (!resp.ok) return;
+      var data = await resp.json();
+      var items = Array.isArray(data.jobs) ? data.jobs : [];
+      items.forEach(function (j) { applyJob(j, jobIsActive(j)); });
+      if (!items.length) renderTrackedJobList();
+    } catch (e) {}
+  }
+
+  function startJobPolling() {
+    if (jobPollTimer) clearInterval(jobPollTimer);
+    fetchJobsFromGateway();
+    jobPollTimer = setInterval(function () {
+      if (isOnline()) fetchJobsFromGateway();
+    }, 4000);
+  }
+
+  function stopJobPolling() {
+    if (jobPollTimer) {
+      clearInterval(jobPollTimer);
+      jobPollTimer = null;
     }
   }
 
@@ -382,9 +546,11 @@
       var key = sessionKey(copy);
       map[key] = Object.assign(map[key] || {}, copy);
     });
-    return Object.keys(map).map(function (k) { return map[k]; }).sort(function (a, b) {
-      return String(b.updated_at || '').localeCompare(String(a.updated_at || ''));
-    });
+    return Object.keys(map).map(function (k) { return map[k]; });
+  }
+
+  function mergeAndSortSessions(agentSessions, inboxThreads) {
+    return sortSessions(mergeInboxSessions(agentSessions, inboxThreads));
   }
 
   async function fetchInboxThreads() {
@@ -457,7 +623,7 @@
     try {
       var raw = localStorage.getItem(CACHE_SESSIONS);
       if (!raw) return false;
-      sessions = JSON.parse(raw);
+      sessions = sortSessions(JSON.parse(raw));
       activeThreadId = loadActiveThreadForAgent(selectedAgentId);
       return sessions.length > 0;
     } catch (e) {
@@ -491,6 +657,7 @@
       var history = loadHistoryCache(activeThreadId, selectedAgentId);
       if (history && history.length) {
         UI().renderHistory(history);
+        restoreJobCards();
         UI().appendSystem('已加载本地缓存，连接后将与服务器同步');
       }
     }
@@ -561,6 +728,7 @@
   }
 
   function getSelectedAgentId() {
+    if (!DEBUG_UI) return DEFAULT_AGENT_ID;
     return selectedAgentId || DEFAULT_AGENT_ID;
   }
 
@@ -571,6 +739,11 @@
   function withTargetAgent(payload) {
     return withUserId((function () {
       var out = payload || {};
+      if (!DEBUG_UI) {
+        out.target_agent_id = DEFAULT_AGENT_ID;
+        out.command_agent_id = DEFAULT_AGENT_ID;
+        return out;
+      }
       if (!out.target_agent_id) {
         out.target_agent_id = getSelectedAgentId();
       }
@@ -579,18 +752,31 @@
     })());
   }
 
+  function updateStaffPresence() {
+    var pcOnline = onlineAgents.some(function (a) {
+      return a.device_id === EXECUTOR_AGENT_ID;
+    });
+    var secretaryOnline = onlineAgents.some(function (a) {
+      return a.device_id === DEFAULT_AGENT_ID;
+    });
+    var text = '员工 · 青铜剑 ' + (pcOnline ? '在线' : '离线');
+    if (!secretaryOnline) text += ' · 秘书离线';
+    UI().setStaffPresence(text);
+  }
+
   function renderAgentSelect() {
     var select = el('agentSelect');
     if (!select) return;
     var known = {};
-    onlineAgents.forEach(function (a) {
+    var list = onlineAgents.slice();
+    list.forEach(function (a) {
       known[a.device_id] = true;
     });
     if (!known[getSelectedAgentId()]) {
-      onlineAgents = onlineAgents.concat([{ device_id: getSelectedAgentId() }]);
+      list = list.concat([{ device_id: getSelectedAgentId() }]);
     }
     select.innerHTML = '';
-    onlineAgents.forEach(function (a) {
+    list.forEach(function (a) {
       var opt = document.createElement('option');
       opt.value = a.device_id;
       opt.textContent = agentOptionLabel(a);
@@ -610,13 +796,18 @@
       if (!resp.ok) return;
       var data = await resp.json();
       onlineAgents = Array.isArray(data.agents) ? data.agents : [];
-      if (data.default_agent_id && !localStorage.getItem(CACHE_TARGET_AGENT)) {
-        saveSelectedAgentId(data.default_agent_id);
-      }
-      if (data.scheduler_agent_id && !localStorage.getItem(CACHE_TARGET_AGENT)) {
-        saveSelectedAgentId(data.scheduler_agent_id);
+      if (!DEBUG_UI) {
+        selectedAgentId = DEFAULT_AGENT_ID;
+      } else {
+        if (data.default_agent_id && !localStorage.getItem(CACHE_TARGET_AGENT)) {
+          saveSelectedAgentId(data.default_agent_id);
+        }
+        if (data.scheduler_agent_id && !localStorage.getItem(CACHE_TARGET_AGENT)) {
+          saveSelectedAgentId(data.scheduler_agent_id);
+        }
       }
       renderAgentSelect();
+      updateStaffPresence();
     } catch (e) {}
   }
 
@@ -653,14 +844,14 @@
 
   function applySessionPayload(p) {
     if (p.sessions) {
-      sessions = mergeInboxSessions(p.sessions, sessions);
+      sessions = mergeAndSortSessions(p.sessions, sessions);
       if (p.thread_id) activeThreadId = p.thread_id;
       else {
         var active = sessions.find(function (s) { return s.active; });
         if (active) activeThreadId = active.thread_id;
       }
       saveSessionsCache();
-      renderSessionList();
+      renderSessionList(true);
     }
     if (p.pending_hitl) {
       var ph = hitlPayloadWithAgent(p.pending_hitl);
@@ -673,9 +864,11 @@
       var merged = mergeHistoryPreferLonger(localHist, p.history);
       saveHistoryCache(activeThreadId, merged, agentId);
       UI().renderHistory(merged);
+      restoreJobCards();
       enrichHistoryFromInbox(activeThreadId, agentId, merged);
     } else {
       restoreHitlDock();
+      restoreJobCards();
     }
     if (p.status === 'session_switched' && p.text) {
       UI().appendSystem(p.text);
@@ -684,16 +877,26 @@
     pendingSwitchThreadId = null;
   }
 
+  function visibleSessions() {
+    if (DEBUG_UI) return sessions;
+    return sessions.filter(function (s) {
+      var aid = s.agent_id || DEFAULT_AGENT_ID;
+      return aid === DEFAULT_AGENT_ID;
+    });
+  }
+
   function renderSessionList(force) {
-    var sig = sessions.map(function (s) {
-      return sessionKey(s) + ':' + (s.title || '') + ':' + (s.active ? '1' : '0');
+    sessions = sortSessions(sessions);
+    var vis = visibleSessions();
+    var sig = vis.map(function (s) {
+      return sessionKey(s) + ':' + (s.title || '') + ':' + (s.updated_at || '') + ':' + (s.active ? '1' : '0');
     }).join('|');
     if (!force && sig === lastSessionListSig) {
-      UI().updateSessionActiveClass(sessions, activeThreadId);
+      UI().updateSessionActiveClass(vis, activeThreadId);
       return;
     }
     lastSessionListSig = sig;
-    UI().renderSessionList(sessions, activeThreadId, switchSession, agentLabel);
+    UI().renderSessionList(vis, activeThreadId, switchSession, agentLabel, formatRelativeTime);
   }
 
   function requestSessionList() {
@@ -731,13 +934,14 @@
     saveSessionsCache();
     UI().clearChat();
     var sess = findSession(threadId);
-    var history = loadHistoryCache(threadId, (sess && sess.agent_id) || selectedAgentId);
+    var history = loadHistoryCache(threadId, (sess && sess.agent_id) || getSelectedAgentId());
     if (history && history.length) {
       UI().renderHistory(history);
       UI().appendSystem(message || '离线浏览缓存，连接恢复后将同步');
     } else {
       UI().appendSystem(message || '未连接，无法加载会话');
     }
+    restoreJobCards();
     UI().updateSessionActiveClass(sessions, activeThreadId);
     UI().closeSidebar();
   }
@@ -748,7 +952,7 @@
       return;
     }
     var sess = findSession(threadId);
-    if (sess && sess.agent_id) {
+    if (DEBUG_UI && sess && sess.agent_id) {
       setSelectedAgentId(sess.agent_id);
     }
     if (!threadId || threadId === activeThreadId) {
@@ -801,11 +1005,12 @@
     restoreHitlDock();
     fetchHitlPendingFromGateway();
     startHitlPolling();
+    startJobPolling();
     flushHitlResQueue();
     notifyClientIdMigrationOnce();
     fetchInboxThreads().then(function (inboxThreads) {
       if (inboxThreads.length) {
-        sessions = mergeInboxSessions(sessions, inboxThreads);
+        sessions = mergeAndSortSessions(sessions, inboxThreads);
         saveSessionsCache();
         renderSessionList(true);
       }
@@ -830,6 +1035,7 @@
         if (merged.length) {
           saveHistoryCache(activeThreadId, merged, agentId);
           UI().renderHistory(merged);
+          restoreJobCards();
         }
       });
     }
@@ -842,6 +1048,7 @@
     pendingUploads = [];
     refreshPendingUploads();
     UI().clearChat();
+    restoreJobCards();
     UI().appendSystem('已开始新对话');
     UI().closeSidebar();
     UI().focusInput();
@@ -928,6 +1135,8 @@
         return;
       }
       sendHitlDecision(taskId, decision, enriched.agent_id);
+    }, function (taskId) {
+      dismissStaleHitl(taskId, enriched.agent_id);
     });
   }
 
@@ -946,8 +1155,16 @@
         return;
       }
       if (!isForThisDevice(p)) return;
+      if (p.hitl_stale_task_id) {
+        removeHitlPending(p.hitl_stale_task_id);
+        resolveHitlOnGateway(p.hitl_stale_task_id, 'rejected');
+      }
       if (p.status === 'activity') {
         applyAgentActivity(p);
+        return;
+      }
+      if (p.status === 'job_progress') {
+        applyJobProgress(p);
         return;
       }
       if (p.status === 'sessions' || p.status === 'session_switched') {
@@ -1037,11 +1254,13 @@
       ws.onclose = function () {
         stopHeartbeat();
         stopHitlPolling();
+        stopJobPolling();
         clearActivityStaleTimer();
         UI().setAgentActivity(null);
         authenticated = false;
         finishSessionSwitch();
         renderAgentSelect();
+        UI().setStaffPresence('员工 · 青铜剑 离线');
         UI().setConnectionStatus('已断开', false);
       };
       ws.onerror = function () {
@@ -1130,6 +1349,8 @@
     restoreFromCache();
     restoreHitlDock();
     renderAgentSelect();
+    renderTrackedJobList();
+    fetchJobsFromGateway();
 
     var agentSelect = el('agentSelect');
     if (agentSelect) {
@@ -1143,6 +1364,7 @@
           var cached = loadHistoryCache(activeThreadId, getSelectedAgentId());
           if (cached && cached.length) {
             UI().renderHistory(cached);
+            restoreJobCards();
           }
         }
         if (isOnline()) {

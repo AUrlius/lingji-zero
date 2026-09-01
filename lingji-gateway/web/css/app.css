@@ -145,6 +145,67 @@ body {
   padding: 0 8px 12px;
 }
 
+.job-list-label {
+  padding: 8px 16px 4px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.job-list {
+  padding: 0 8px 8px;
+  max-height: 28vh;
+  overflow-y: auto;
+}
+
+.job-item {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  width: 100%;
+  text-align: left;
+  padding: 8px 10px;
+  margin-bottom: 4px;
+  border: none;
+  border-radius: 8px;
+  background: var(--bg-session-active);
+  color: var(--text-session);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.job-id { font-weight: 600; color: var(--text-primary); }
+.job-status { opacity: 0.8; }
+.job-intent {
+  flex-basis: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  opacity: 0.75;
+}
+.job-empty { font-size: 12px; padding: 6px 10px; opacity: 0.6; }
+
+.staff-presence {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-top: 2px;
+}
+
+.msg.job-card {
+  border: 1px solid var(--border-subtle, #333);
+  background: var(--bg-session-active);
+}
+.job-card-head { font-weight: 600; margin-bottom: 4px; }
+.job-card-intent { font-size: 13px; opacity: 0.85; margin-bottom: 6px; }
+.job-steps { margin: 0; padding-left: 1.1em; font-size: 13px; }
+.job-step-completed { color: #81c784; }
+.job-step-failed { color: #ef9a9a; }
+.job-step-dispatched, .job-step-running { color: #ffcc80; }
+
+.agent-select.debug-only { display: none; }
+html.debug-ui .agent-select.debug-only { display: inline-block; }
+
 .session-item {
   display: flex;
   align-items: center;
@@ -164,12 +225,26 @@ body {
   min-height: 44px;
 }
 
+.session-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
 .session-title {
   flex: 1;
   min-width: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.session-time {
+  font-size: 11px;
+  color: var(--text-secondary);
+  line-height: 1.2;
 }
 
 .session-agent {
@@ -439,6 +514,7 @@ body {
 
 .hitl-btn.approve { background: var(--hitl-approve); color: var(--text-on-accent); }
 .hitl-btn.reject { background: var(--hitl-reject); color: var(--text-on-accent); }
+.hitl-btn.dismiss { background: transparent; color: var(--text-secondary); border: 1px solid var(--border-subtle); }
 .hitl-btn:disabled { opacity: 0.45; cursor: not-allowed; }
 
 .attachments { margin-top: 8px; display: flex; flex-direction: column; gap: 6px; }

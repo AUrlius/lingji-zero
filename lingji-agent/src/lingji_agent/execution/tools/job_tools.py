@@ -7,7 +7,7 @@ from typing import Any
 from lingji_agent.execution.registry import RiskLevel, registry
 from lingji_agent.foundation.scheduler import get_scheduler_agent_id
 from lingji_agent.network.fleet_resolve import fetch_online_agents, resolve_agent_id
-from lingji_agent.network.job_client import create_fleet_file_job, get_job
+from lingji_agent.network.job_client import create_fleet_file_job, create_job, dispatch_job, get_job
 
 
 def _local_agent_id() -> str:
@@ -114,4 +114,69 @@ async def job_create_fleet_transfer(
         "status": job.get("status"),
         "steps": job.get("steps"),
         "message": f"已创建任务 {job.get('job_id')}（{sender} → {receiver}）",
+    }
+
+
+@registry.register(
+    name="job_invoke",
+    description=(
+        "秘书派工：创建 LJ-* 并委派值守机执行固定 playbook。"
+        "playbook_id: agent.status | agent.restart | git-pull-deploy | fleet-smoke。"
+        "用户要检查上海 Agent、重启青铜剑 Agent 时必须用此工具，禁止 execute_command。"
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "user_id": {"type": "string"},
+            "playbook_id": {
+                "type": "string",
+                "description": "agent.status / agent.restart / git-pull-deploy / fleet-smoke",
+            },
+            "intent": {"type": "string"},
+            "executor_id": {"type": "string", "description": "默认 lingji-pc"},
+        },
+        "required": ["user_id", "playbook_id"],
+    },
+    risk=RiskLevel.SAFE,
+)
+async def job_invoke(
+    user_id: str = "",
+    playbook_id: str = "",
+    intent: str = "",
+    executor_id: str = "",
+) -> dict:
+    from lingji_agent.execution.approval_scope import default_scope
+    from lingji_agent.execution.playbook_runner import PLAYBOOK_SCRIPTS
+
+    pb = (playbook_id or "").strip()
+    if pb not in PLAYBOOK_SCRIPTS:
+        return {"error": f"未知 playbook: {pb}，可选: {', '.join(PLAYBOOK_SCRIPTS)}"}
+    executor = (executor_id or "lingji-pc").strip()
+    job = await create_job(
+        user_id=user_id,
+        playbook=pb,
+        intent=intent or pb,
+        plan={"executor_id": executor},
+        approval_scope=default_scope(pb),
+        scheduler_agent_id=get_scheduler_agent_id(fallback_device_id=_local_agent_id()),
+    )
+    if job.get("error"):
+        return job
+    dispatched = await dispatch_job(
+        job.get("job_id", ""),
+        executor_id=executor,
+    )
+    if dispatched.get("error"):
+        return {
+            "job_id": job.get("job_id"),
+            "error": dispatched.get("error"),
+            "message": f"已创建 {job.get('job_id')} 但派工失败",
+        }
+    return {
+        "job_id": dispatched.get("job_id") or job.get("job_id"),
+        "status": dispatched.get("status"),
+        "steps": dispatched.get("steps"),
+        "message": format_job_close_message(dispatched)
+        if dispatched.get("status") in ("completed", "failed")
+        else f"已派工 {dispatched.get('job_id')}（{pb} → {executor}），进度见办公桌工单卡。",
     }

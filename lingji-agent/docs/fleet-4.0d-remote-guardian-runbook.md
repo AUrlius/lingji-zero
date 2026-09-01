@@ -1,8 +1,12 @@
-# Fleet 4.0d — 离沪值守 Runbook（Hermes 执行）
+# Fleet 4.0d — 离沪值守 Runbook
 
 > **部署（首次 / 发版）**：[fleet-4.0d-1-deploy-空城记与青铜剑.md](./fleet-4.0d-1-deploy-空城记与青铜剑.md) ← **pull 后按此文档分机执行**  
 > **设计定稿**：[fleet-4.0d-remote-guardian-design.md](./fleet-4.0d-remote-guardian-design.md)  
 > **用途**：日常巡检与 break-glass；**勿**粘贴给调度 Agent 当对话指令。
+>
+> **2026-08-31：** 主路径执行 = 青铜剑 Agent 收 `JOB_DELEGATE` 后跑 `scripts/playbooks/*.sh`。  
+> Hermes **无入站端口**；飞书↔Hermes 仅 break-glass。档 B（Hermes CLI）未接入 Job。  
+> **重启后补报：** `agent.restart` 会杀掉当前进程；回执写入 `lingji-agent/data/pending_job_report.json`，新进程连上 Gateway 后再 REPORT。
 
 ---
 
@@ -10,11 +14,11 @@
 
 | 机器 | device_id | 角色 |
 |------|-----------|------|
-| 青铜剑（上海） | `lingji-pc` | **值守执行机** — Agent + Hermes bridge |
-| 空城记（随用户） | `lingji-laptop` | **调度终端** — 用户唯一对话面（目标态） |
-| 手机 Web | `user-*` | 入口，等同 user_id |
+| 青铜剑（上海） | `lingji-pc` | **值守执行机** — Agent 跑 playbook；Hermes 仅 break-glass |
+| 空城记（随用户） | `lingji-laptop` | **调度 / 秘书** — 用户唯一对话面 |
+| 手机 Web | `user-*` | 董事长办公桌，等同 user_id；默认只聊秘书 |
 
-**铁律：** 用户 → 调度 Agent → 青铜剑 Hermes/Agent；**不**用户直聊 Hermes。
+**铁律：** 用户 → 秘书（空城记）→ Job `LJ-*` → 青铜剑 playbook → REPORT。**不**用户直聊 Hermes / 直选青铜剑。
 
 ---
 
@@ -35,7 +39,7 @@ grep -E 'display_name|incoming_dir|device_id' lingji-agent/config/default_config
 # 电源：Windows 设置 → 休眠「从不」；合盖「不操作」或仅关屏
 ```
 
-**Hermes bridge 常驻：** Cursor/Hermes MCP bridge 需与 Hermes 同机运行；断线则 Permission Proxy 不可用（Job 会 failed，非死锁）。
+**Hermes：** 青铜剑 Hermes Gateway 只出站到飞书，**不要**开入站端口或把 OpenClaw HTTP 暴露到公网。Job 主路径不依赖 Hermes。
 
 ---
 
@@ -65,16 +69,16 @@ git pull origin main
 
 ---
 
-## D. 每日健康检查（playbook 目标：`agent.status`）
+## D. 每日健康检查（playbook：`agent.status`）
 
-手动等价命令：
+产品路径：Web 对秘书说「检查上海 Agent 状态」→ `job_invoke` → `LJ-*` → 青铜剑跑脚本。
+
+手动等价（青铜剑 WSL）：
 
 ```bash
-cd /mnt/e/LingjiPlan/LingjiZero/lingji-agent
-source .venv/bin/activate
-python3 -m lingji_agent.main --status
-
-curl -sS "https://lingji.mygoal.tech/v1/agents?token=$LINGJI_AUTH_TOKEN" | head -c 500
+cd /mnt/e/LingjiPlan/LingjiZero
+bash scripts/playbooks/agent_status.sh
+# 末行 STATUS=ok 或 STATUS=fail
 ```
 
 期望：`lingji-pc`、`lingji-laptop` 均在 `agents` 列表。
@@ -84,7 +88,7 @@ curl -sS "https://lingji.mygoal.tech/v1/agents?token=$LINGJI_AUTH_TOKEN" | head 
 ## E. 离沪前实机验收（4 条）
 
 1. **手机 Web** → 调度 Agent：「把这个文件发到上海青铜剑」→ `LJ-xxx 已完成`  
-2. 「检查上海 Agent 状态」→ 结案（playbook 或 Agent 委派）  
+2. 「检查上海 Agent 状态」→ 侧栏出现 `LJ-*`，对话内步骤卡 completed/failed；**无** `execute_command(find)` 僵尸 HITL  
 3. 纯上传无文字 → 仍「已保存到电脑」（fast-path）  
 4. 上传 +「发给青铜剑」→ **不应**落本机 incoming（`65d37d1`+）
 
@@ -92,12 +96,12 @@ curl -sS "https://lingji.mygoal.tech/v1/agents?token=$LINGJI_AUTH_TOKEN" | head 
 
 ## F. Break-glass（仅调度与 Gateway 均不可用）
 
-用户可直接让 **Hermes @ 青铜剑** 执行【附录 A / C】中的命令；**不计入** Job 台账，事后补记运维日志。
+用户可直接让 **Hermes @ 青铜剑** 执行 §A/C 命令；**不计入** Job 台账，事后补记运维日志。
 
 ---
 
 ## G. 相关文档
 
 - [fleet-4.0d-1-deploy-空城记与青铜剑.md](./fleet-4.0d-1-deploy-空城记与青铜剑.md) — 发版部署（Hermes 分机步骤）
-- [laptop-fleet-3.1-display-name-via-agent.md](./laptop-fleet-3.1-display-name-via-agent.md) — 命名；Tier 0 默认 Hermes【第三节】
+- [laptop-fleet-3.1-display-name-via-agent.md](./laptop-fleet-3.1-display-name-via-agent.md) — 命名；Tier 0 默认 Hermes §三
 - [fleet-4.0-job-workflow.md](./fleet-4.0-job-workflow.md) — Job 工程摘要

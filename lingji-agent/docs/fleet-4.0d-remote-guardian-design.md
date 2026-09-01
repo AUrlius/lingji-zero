@@ -1,8 +1,22 @@
 # Sprint Fleet 4.0d — 离沪值守、委派审批与 Hermes 权限代理
 
-> **状态**：设计定稿（2026-07-08）· **未编码**  
+> **状态**：设计定稿（2026-07-08）· **4.0d-2 秘书台 MVP 已编码（2026-08-31，档 A）**；4.0d-3/4 与 Hermes Permission Proxy **未做**  
 > **前置**：Fleet 4.0a Job 台账（`6d73ff4`+）；upload fast-path 修复（`65d37d1`）  
 > **关联**：[fleet-4.0-job-workflow.md](./fleet-4.0-job-workflow.md) · [fleet-4.0d-remote-guardian-runbook.md](./fleet-4.0d-remote-guardian-runbook.md) · 完整 Sprint 见 LingjiPlan `docs/sprints/…/Sprint Fleet 4.0d …`
+
+### 实现切片（2026-08-31）
+
+本切片把「工位分机」落成 **青铜剑 Agent 跑仓库写死 playbook**，**不是**独立分机进程，也 **不是** Hermes 入站 HTTP。
+
+| 已落地（档 A） | 明确未做（档 B / 远期） |
+|----------------|-------------------------|
+| `approval_scope` + `GET/POST /v1/jobs` + `dispatch` + `report` | Hermes MCP Bridge 入站端口（青铜剑 **无** inbound TCP） |
+| Gateway `JOB_DELEGATE` → 执行机 `on_job_delegate` | `job_invoke_hermes` / Permission Proxy |
+| `scripts/playbooks/*.sh` + `job_invoke` | OpenClaw HTTP（本切片忽略） |
+| 调度 `secretary_guard`：跨机运维禁止 `execute_command` | Delegated HITL 全量（4.0d-3） |
+| Web 董事长办公桌（v0.1.11）：默认只聊空城记；侧栏工单；对话内步骤卡；员工在线 | 用户直选青铜剑当聊天对象（仅 `?debug=1`） |
+
+飞书 ↔ Hermes 仅 **break-glass**，不是产品主路径。
 
 ---
 
@@ -349,7 +363,7 @@ hermes_bridge:
 |-------------|------|------|
 | `agent.status` | 进程、Gateway 连通、incoming 可写 | scope 内免批 |
 | `agent.restart` | pull + `restart-agent-wsl.sh` | scope 内免批 |
-| `git-pull-deploy` | LingjiZero pull + gateway deploy 脚本 | scope 内免批 |
+| `git-pull-deploy` | LingjiZero `git pull --ff-only`；**打印** would-run deploy，**不**执行 `deploy-gateway.sh` | scope 内免批 |
 | `fleet-smoke` | 小文件 transfer 自检 | scope 内免批 |
 | `fleet-3.1-naming` | display_name yaml（已有文档） | scope 内免批 |
 
@@ -364,7 +378,7 @@ Playbook **禁止**任意 shell；命令列表 **写死在仓库** `scripts/play
 | **4.0a** | Job 台账 + fleet 关联 | ✅ 已编码 |
 | **4.0a-fix** | upload fast-path | ✅ `65d37d1` |
 | **4.0d-1** | Web 默认调度空城记 + `scheduler_agent_id` config | ✅ 已编码 |
-| **4.0d-2** | `approval_scope` 字段 + playbook 4 个 + bridge 常驻 runbook | 2–3d |
+| **4.0d-2** | `approval_scope` + 档 A playbook 4 个 + `JOB_DELEGATE` + Web 秘书台 | ✅ 已编码（Hermes bridge **未**做） |
 | **4.0d-3** | Delegated HITL（Gateway 路由 + `hitl_delegate_respond`） | 3–5d |
 | **4.0d-4** | Hermes Permission Proxy watcher | 2–3d |
 | **4.0c** | `job_invoke_hermes` Gateway 桥（与 4.0d-2/4 合并实施） | — |

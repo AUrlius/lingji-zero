@@ -78,7 +78,10 @@ func (s *HitlPendingStore) UpsertPending(p *HitlPending) error {
 			description=excluded.description,
 			tool=excluded.tool,
 			risk_level=excluded.risk_level,
-			status=excluded.status,
+			status=CASE
+				WHEN hitl_pending.status IN ('resolved', 'rejected') THEN hitl_pending.status
+				ELSE excluded.status
+			END,
 			updated_at=excluded.updated_at
 	`, p.TaskID, p.UserID, p.AgentID, p.ThreadID, p.Description,
 		p.Tool, p.RiskLevel, p.Status, p.CreatedAt, p.UpdatedAt)

@@ -1,6 +1,6 @@
 # Fleet 4.0 — Job Workflow (Engineering Summary)
 
-> **Status**: **4.0a implemented** (2026-07-08) · **4.0d design finalized** (remote guardian + Delegated HITL)  
+> **Status**: **4.0a implemented** (2026-07-08) · **4.0d-2 秘书台 MVP coded** (2026-08-31，档 A playbook.sh + `JOB_DELEGATE`；Hermes 入站 / `job_invoke_hermes` **未做**)  
 > **Full spec**: [Sprint Fleet 4.0 — Job 工作流、调度层与分级验收](../../../../docs/sprints/第六阶段：编码实现与测试/Sprint Fleet 4.0 — Job 工作流、调度层与分级验收.md)  
 > **4.0d spec**: [fleet-4.0d-remote-guardian-design.md](./fleet-4.0d-remote-guardian-design.md)  
 > **Runbook**: [fleet-4.0d-remote-guardian-runbook.md](./fleet-4.0d-remote-guardian-runbook.md)  
@@ -37,12 +37,13 @@ S5 receive_verify    → receiver agent (optional)
 
 L1 `completed` iff all mandatory L2 steps `completed`.
 
-## HTTP API (planned)
+## HTTP API
 
 ```
 POST   /v1/jobs
 GET    /v1/jobs/{job_id}
 GET    /v1/jobs?user_id=
+POST   /v1/jobs/{job_id}/dispatch
 POST   /v1/jobs/{job_id}/steps/{step_id}/report
 ```
 
@@ -53,10 +54,10 @@ POST /v1/fleet/transfer  + job_id, step_id
 FLEET_ACK                → update job step S4
 ```
 
-## Scheduler tools (planned)
+## Scheduler tools
 
-- `job_create`, `job_get`, `job_dispatch_step`, `job_close`
-- `job_invoke_hermes` (Phase 4.0c)
+- `job_get`、`job_create_fleet_transfer`、**`job_invoke`**（档 A：建 LJ-* + dispatch playbook）
+- `job_invoke_hermes`（档 B，未做）
 
 Default scheduler: **`lingji-laptop`（空城记）** when user is mobile; **`lingji-pc`（青铜剑）** when co-located. See 4.0d.
 
@@ -78,7 +79,8 @@ LJ-A1B2C3D4 失败：接收机未确认（…）。详情 GET /v1/jobs/LJ-A1B2C3
 | **4.0b** | JOB_DELEGATE/EVENT, receive_verify, Web job drawer |
 | **4.0c** | Hermes bridge + playbooks |
 | **4.0d-1** | Web default `lingji-laptop` + `scheduler` config + Job `scheduler_agent_id` | ✅ coded |
-| **4.0d** | `approval_scope`; Delegated HITL; Hermes Permission Proxy |
+| **4.0d-2** | `approval_scope` + 档 A playbooks + `JOB_DELEGATE` + Web 办公桌 | ✅ coded |
+| **4.0d-3/4** | Delegated HITL; Hermes Permission Proxy | 未做 |
 
 ## Existing code anchors
 
@@ -91,4 +93,4 @@ LJ-A1B2C3D4 失败：接收机未确认（…）。详情 GET /v1/jobs/LJ-A1B2C3
 
 ## Related ops doc
 
-Fleet 3.1 naming: prefer **Hermes 第三节** over browser Agent 第一/二节 — see [laptop-fleet-3.1-display-name-via-agent.md](./laptop-fleet-3.1-display-name-via-agent.md).
+Fleet 3.1 naming: prefer **Hermes §三** over browser Agent §二 — see [laptop-fleet-3.1-display-name-via-agent.md](./laptop-fleet-3.1-display-name-via-agent.md).

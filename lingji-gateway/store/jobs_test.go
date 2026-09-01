@@ -57,3 +57,52 @@ func TestJobStoreCreateAndComplete(t *testing.T) {
 		t.Fatalf("bad summary: %q job=%+v", summary, completed)
 	}
 }
+
+func TestJobStorePlaybookAndReport(t *testing.T) {
+	inbox, err := OpenInboxStore(t.TempDir() + "/inbox.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer inbox.Close()
+	js, err := NewJobStoreFromDB(inbox.DB())
+	if err != nil {
+		t.Fatal(err)
+	}
+	job, err := js.CreateJob(CreateJobInput{
+		UserID:           "user-desk",
+		SchedulerAgentID: "lingji-laptop",
+		Intent:           "检查上海 Agent 状态",
+		Playbook:         "agent.status",
+		Plan:             map[string]any{"executor_id": "lingji-pc"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(job.Steps) != 1 || job.Steps[0].Name != "run_playbook" {
+		t.Fatalf("steps = %+v", job.Steps)
+	}
+	if job.ApprovalScope == nil || job.ApprovalScope["auto_approve_tier0"] != true {
+		t.Fatalf("scope = %+v", job.ApprovalScope)
+	}
+	listed, err := js.ListJobs("user-desk", 10)
+	if err != nil || len(listed) != 1 {
+		t.Fatalf("list: %v %+v", err, listed)
+	}
+	dispatched, err := js.DispatchStep(job.JobID, "", "lingji-pc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dispatched.Steps[0].Status != "dispatched" {
+		t.Fatalf("dispatch status %s", dispatched.Steps[0].Status)
+	}
+	done, err := js.ReportStep(job.JobID, job.JobID+"-S1", ReportStepInput{
+		Status:   "completed",
+		Evidence: map[string]any{"stdout": "ok"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if done.Status != "completed" {
+		t.Fatalf("want completed got %s", done.Status)
+	}
+}

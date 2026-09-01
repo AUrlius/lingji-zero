@@ -163,19 +163,13 @@ def find_pending_hitl_for_thread(
     for task_id, pending in pending_runs.items():
         if pending.thread_id == thread_id:
             session = get_pending_hitl_session_by_task_id(conn, task_id)
+            if session is None:
+                continue
             return {
                 "task_id": task_id,
-                "description": (session or {}).get("description") or "危险操作需审批",
-                "risk_level": (session or {}).get("risk_level") or "critical",
-                "tool": (session or {}).get("tool") or "",
-            }
-
-    for session in get_pending_hitl_sessions_with_checkpoints(conn):
-        if session.get("thread_id") == thread_id:
-            return {
-                "task_id": session["task_id"],
-                "description": session.get("description") or "",
+                "description": session.get("description") or "危险操作需审批",
                 "risk_level": session.get("risk_level") or "critical",
+                "tool": session.get("tool") or "",
             }
     return None
 

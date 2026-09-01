@@ -58,6 +58,28 @@ async def _invoke_tool(
         return await tool_def.fn(**fn_args)
 
 
+def _secretary_blocks_execute_command(
+    state: AgentState,
+    fn_name: str,
+    fn_args: dict[str, Any],
+) -> bool:
+    if fn_name != "execute_command":
+        return False
+    from lingji_agent.execution.secretary_guard import should_block_execute_command
+    from lingji_agent.foundation.scheduler import is_scheduler_agent
+
+    user_text = ""
+    for msg in reversed(state.get("messages") or []):
+        if msg.get("role") == "user":
+            user_text = str(msg.get("content") or "")
+            break
+    return should_block_execute_command(
+        is_scheduler=is_scheduler_agent(),
+        user_text=user_text,
+        command=str(fn_args.get("command") or ""),
+    )
+
+
 async def agent_think(state: AgentState) -> AgentState:
     """LLM 推理节点：调用 LLM，解析 tool_calls 或文本回复"""
     cfg = get_config()
@@ -207,6 +229,10 @@ async def _tool_executor_impl(state: AgentState) -> AgentState:
             err = f"工具未注册: {fn_name}"
             logger.warning("[tool_executor] %s", err)
             result_content = json.dumps({"error": err})
+        elif _secretary_blocks_execute_command(state, fn_name, fn_args):
+            result_content = json.dumps({
+                "error": "调度秘书禁止用 execute_command 做跨机/运维。请改用 job_invoke 或 fleet_send_file。",
+            }, ensure_ascii=False)
         else:
             # 风险检查
             risk = tool_def.risk
@@ -303,7 +329,7 @@ async def _tool_executor_impl(state: AgentState) -> AgentState:
                     }, ensure_ascii=False)
             else:
                 logger.info("[tool_executor] 执行: %s(%s)", fn_name, fn_args_str)
-                if fn_name in ("fleet_send_file", "relay_file_by_id"):
+                if fn_name in ("fleet_send_file", "relay_file_by_id", "job_invoke", "job_get"):
                     fn_args.setdefault("thread_id", configurable.get("thread_id", ""))
                     fn_args.setdefault("user_id", configurable.get("_user_id", ""))
                 with trace_span(f"tool.execute.{fn_name}", {"tool.name": fn_name}):

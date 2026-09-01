@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/AUrlius/lingji-gateway/config"
 	"github.com/AUrlius/lingji-gateway/handler"
@@ -59,7 +60,8 @@ func main() {
 	inboxHandler := handler.NewInboxHandler(cfg, inboxStore)
 	fileRegHandler := handler.NewFileRegistryHandler(cfg, fileRegistry)
 	hitlHandler := handler.NewHitlHandler(cfg, hitlStore)
-	jobsHandler := handler.NewJobsHandler(cfg, jobStore)
+	jobsHandler := handler.NewJobsHandler(cfg, jobStore).WithHub(h, q)
+	jobsHandler.StartStaleWatcher(30 * time.Minute)
 
 	// H1 RunRegistry + WebSocket event stream
 	runWSHub := handler.NewRunWSHub()
@@ -79,7 +81,10 @@ func main() {
 	http.HandleFunc("POST /v1/fleet/transfer", fleetHandler.HandleTransfer)
 	http.HandleFunc("POST /v1/fleet/relay", fleetHandler.HandleRelay)
 	http.HandleFunc("POST /v1/jobs", jobsHandler.HandleCreate)
+	http.HandleFunc("GET /v1/jobs", jobsHandler.HandleList)
 	http.HandleFunc("GET /v1/jobs/{job_id}", jobsHandler.HandleGet)
+	http.HandleFunc("POST /v1/jobs/{job_id}/dispatch", jobsHandler.HandleDispatch)
+	http.HandleFunc("POST /v1/jobs/{job_id}/steps/{step_id}/report", jobsHandler.HandleReport)
 	http.HandleFunc("POST /v1/files/registry", fileRegHandler.HandleRegister)
 	http.HandleFunc("GET /v1/files/registry", fileRegHandler.HandleGet)
 	http.HandleFunc("GET /v1/hitl/pending", hitlHandler.HandlePending)

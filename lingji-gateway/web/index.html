@@ -5,28 +5,32 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
-<title>灵机助手</title>
-<link rel="stylesheet" href="/css/app.css?v=0.1.9">
+<title>灵机</title>
+<link rel="stylesheet" href="/css/app.css?v=0.1.11">
 </head>
 <body>
 <div id="sidebarOverlay" class="sidebar-overlay" onclick="LingjiUI.closeSidebar()"></div>
 <div id="app">
   <aside id="sidebar" class="sidebar">
     <div class="sidebar-brand">灵机</div>
-    <button type="button" id="btnNewChat" class="sidebar-new">+ 新对话</button>
+    <button type="button" id="btnNewChat" class="sidebar-new">+ 新交办</button>
+    <div class="job-list-label">工单</div>
+    <div id="jobList" class="job-list"></div>
+    <div class="job-list-label">交办记录</div>
     <div id="sessionList"></div>
   </aside>
   <div class="main-panel">
     <div class="header">
       <button type="button" class="menu-btn" onclick="LingjiUI.toggleSidebar()" aria-label="菜单">☰</button>
       <div class="header-main">
-        <h1>灵机助手</h1>
+        <h1>灵机</h1>
         <div class="status off" id="status">未连接</div>
+        <div class="staff-presence" id="staffPresence">员工 · 青铜剑 …</div>
         <div class="agent-activity" id="agentActivity" hidden aria-live="polite">
           <span class="agent-activity-dot" aria-hidden="true"></span>
           <span class="agent-activity-label" id="agentActivityLabel"></span>
         </div>
-        <select id="agentSelect" class="agent-select" title="对话调度 Agent" aria-label="对话调度 Agent"></select>
+        <select id="agentSelect" class="agent-select debug-only" title="对话调度 Agent" aria-label="对话调度 Agent"></select>
       </div>
       <button type="button" id="btnTheme" class="theme-btn" aria-label="切换主题">🌙</button>
     </div>
@@ -51,7 +55,7 @@
         <input type="file" id="fileInput" class="file-input-visually-hidden" multiple
           accept="image/*,video/*,.pdf,.zip,.doc,.docx,.txt,.md">
         <div class="composer-box">
-          <textarea id="input" rows="1" placeholder="输入消息…" autocomplete="off" enterkeyhint="send"></textarea>
+          <textarea id="input" rows="1" placeholder="向秘书交办…" autocomplete="off" enterkeyhint="send"></textarea>
           <button type="button" id="btnSend" class="send-btn">发送</button>
         </div>
       </div>
@@ -59,8 +63,8 @@
   </div>
 </div>
 
-<script src="/js/ui.js?v=0.1.9"></script>
-<script src="/js/lingji-api.js?v=0.1.9"></script>
+<script src="/js/ui.js?v=0.1.11"></script>
+<script src="/js/lingji-api.js?v=0.1.11"></script>
 <script>
 (function () {
   var STORAGE_KEY = 'lingji_theme';

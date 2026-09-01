@@ -155,6 +155,22 @@ def update_hitl_session(conn, session_id: str, status: str):
     conn.commit()
 
 
+def expire_hitl_session_by_task_id(conn, task_id: str, status: str = "stale") -> bool:
+    """将指定 task 的 pending HITL 标记为已失效（Agent 无法 resume 时清理 DB 幽灵审批）。"""
+    if not task_id:
+        return False
+    cur = conn.execute(
+        """
+        UPDATE hitl_sessions
+        SET status = ?, resolved_at = CURRENT_TIMESTAMP
+        WHERE task_id = ? AND status = 'pending'
+        """,
+        (status, task_id),
+    )
+    conn.commit()
+    return cur.rowcount > 0
+
+
 def _session_title(text: str, max_len: int = 40) -> str:
     one_line = " ".join(text.strip().split())
     if len(one_line) <= max_len:

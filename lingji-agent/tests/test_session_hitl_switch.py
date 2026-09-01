@@ -34,7 +34,25 @@ def test_find_pending_hitl_from_memory_pending_runs():
     assert not thread_has_pending_hitl(conn, "phone-1:other", pending_runs)
 
 
-def test_find_pending_hitl_from_db_only():
+def test_expire_hitl_session_by_task_id():
+    from lingji_agent.foundation.db import expire_hitl_session_by_task_id
+
+    conn = init_db(":memory:")
+    save_checkpoint(conn, "cp-stale", "phone-1:thread-z", {"messages": []}, status="running")
+    conn.execute(
+        """INSERT INTO hitl_sessions (id, checkpoint_id, task_id, description, risk_level, status)
+           VALUES ('h-stale', 'cp-stale', 'task-stale', 'shell', 'critical', 'pending')"""
+    )
+    conn.commit()
+    assert find_pending_hitl_for_thread(conn, "phone-1:thread-z", {"task-stale": _FakePending("phone-1:thread-z")}) is not None
+
+    assert expire_hitl_session_by_task_id(conn, "task-stale", "stale") is True
+    assert find_pending_hitl_for_thread(conn, "phone-1:thread-z", {"task-stale": _FakePending("phone-1:thread-z")}) is None
+    assert expire_hitl_session_by_task_id(conn, "task-stale", "stale") is False
+
+
+def test_find_pending_hitl_from_db_only_without_memory():
+    """DB 中 pending 但内存无 pending_runs 时不应再向 Web 展示（避免僵尸审批条）。"""
     conn = init_db(":memory:")
     state = {"messages": [{"role": "user", "content": "danger"}]}
     save_checkpoint(conn, "cp2", "phone-1:thread-b", state, status="running")
@@ -44,9 +62,4 @@ def test_find_pending_hitl_from_db_only():
     )
     conn.commit()
 
-    hitl = find_pending_hitl_for_thread(conn, "phone-1:thread-b", {})
-    assert hitl == {
-        "task_id": "task-b",
-        "description": "执行 shell",
-        "risk_level": "critical",
-    }
+    assert find_pending_hitl_for_thread(conn, "phone-1:thread-b", {}) is None

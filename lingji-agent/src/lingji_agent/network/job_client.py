@@ -82,3 +82,99 @@ async def get_job(
             return resp.json()
     except Exception as e:
         return {"error": f"get job 请求失败: {e}"}
+
+
+def _auth_headers(token: str) -> dict[str, str]:
+    headers: dict[str, str] = {"Content-Type": "application/json"}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    return headers
+
+
+async def create_job(
+    *,
+    user_id: str,
+    playbook: str,
+    intent: str = "",
+    plan: dict | None = None,
+    approval_scope: dict | None = None,
+    scheduler_agent_id: str = "",
+    host: str | None = None,
+    port: int | None = None,
+    auth_token: str | None = None,
+) -> dict:
+    """POST /v1/jobs — 通用工单（含 playbook 运维）。"""
+    if not user_id:
+        return {"error": "user_id 不能为空"}
+    token = auth_token if auth_token is not None else os.getenv("LINGJI_AUTH_TOKEN", "")
+    url = f"{_gateway_base_url(host, port)}/v1/jobs"
+    body = {
+        "user_id": user_id,
+        "scheduler_agent_id": scheduler_agent_id,
+        "intent": intent,
+        "playbook": playbook or "agent.status",
+        "plan": plan or {},
+    }
+    if approval_scope:
+        body["approval_scope"] = approval_scope
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as session:
+            resp = await session.post(url, json=body, headers=_auth_headers(token))
+            if resp.status_code >= 400:
+                return {"error": f"create job 失败 ({resp.status_code}): {resp.text[:200]}"}
+            return resp.json()
+    except Exception as e:
+        return {"error": f"create job 请求失败: {e}"}
+
+
+async def dispatch_job(
+    job_id: str,
+    *,
+    step_id: str = "",
+    executor_id: str = "",
+    host: str | None = None,
+    port: int | None = None,
+    auth_token: str | None = None,
+) -> dict:
+    """POST /v1/jobs/{job_id}/dispatch"""
+    jid = (job_id or "").strip()
+    if not jid:
+        return {"error": "job_id 不能为空"}
+    token = auth_token if auth_token is not None else os.getenv("LINGJI_AUTH_TOKEN", "")
+    url = f"{_gateway_base_url(host, port)}/v1/jobs/{jid}/dispatch"
+    body = {"step_id": step_id, "executor_id": executor_id}
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as session:
+            resp = await session.post(url, json=body, headers=_auth_headers(token))
+            if resp.status_code >= 400:
+                return {"error": f"dispatch 失败 ({resp.status_code}): {resp.text[:200]}"}
+            return resp.json()
+    except Exception as e:
+        return {"error": f"dispatch 请求失败: {e}"}
+
+
+async def report_job_step(
+    job_id: str,
+    step_id: str,
+    *,
+    status: str,
+    evidence: dict | None = None,
+    error: str = "",
+    host: str | None = None,
+    port: int | None = None,
+    auth_token: str | None = None,
+) -> dict:
+    """POST /v1/jobs/{job_id}/steps/{step_id}/report"""
+    if not job_id or not step_id:
+        return {"error": "job_id 与 step_id 不能为空"}
+    token = auth_token if auth_token is not None else os.getenv("LINGJI_AUTH_TOKEN", "")
+    url = f"{_gateway_base_url(host, port)}/v1/jobs/{job_id}/steps/{step_id}/report"
+    body = {"status": status, "evidence": evidence or {}, "error": error}
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as session:
+            resp = await session.post(url, json=body, headers=_auth_headers(token))
+            if resp.status_code >= 400:
+                return {"error": f"report 失败 ({resp.status_code}): {resp.text[:200]}"}
+            return resp.json()
+    except Exception as e:
+        return {"error": f"report 请求失败: {e}"}
