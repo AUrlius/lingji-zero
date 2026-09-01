@@ -10,6 +10,7 @@
 """
 
 import asyncio
+import inspect
 import json
 import logging
 import time
@@ -54,8 +55,28 @@ async def _invoke_tool(
     """执行工具；CRITICAL 且威胁升级时在 Docker 隔离上下文中运行。"""
     from lingji_agent.execution.sandbox import sandbox_execution_context
 
+    kwargs = filter_tool_args(tool_def.fn, fn_args)
     with sandbox_execution_context(force_docker=force_docker):
-        return await tool_def.fn(**fn_args)
+        return await tool_def.fn(**kwargs)
+
+
+def filter_tool_args(fn, fn_args: dict[str, Any]) -> dict[str, Any]:
+    """Drop keys the tool callable does not accept (e.g. injected thread_id)."""
+    try:
+        sig = inspect.signature(fn)
+    except (TypeError, ValueError):
+        return dict(fn_args)
+    if any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()):
+        return dict(fn_args)
+    allowed = {
+        name
+        for name, p in sig.parameters.items()
+        if p.kind in (
+            inspect.Parameter.POSITIONAL_OR_KEYWORD,
+            inspect.Parameter.KEYWORD_ONLY,
+        )
+    }
+    return {k: v for k, v in fn_args.items() if k in allowed}
 
 
 def _secretary_blocks_execute_command(
@@ -329,8 +350,10 @@ async def _tool_executor_impl(state: AgentState) -> AgentState:
                     }, ensure_ascii=False)
             else:
                 logger.info("[tool_executor] 执行: %s(%s)", fn_name, fn_args_str)
-                if fn_name in ("fleet_send_file", "relay_file_by_id", "job_invoke", "job_get"):
+                if fn_name in ("fleet_send_file", "relay_file_by_id"):
                     fn_args.setdefault("thread_id", configurable.get("thread_id", ""))
+                    fn_args.setdefault("user_id", configurable.get("_user_id", ""))
+                elif fn_name in ("job_invoke", "job_get", "job_create_fleet_transfer"):
                     fn_args.setdefault("user_id", configurable.get("_user_id", ""))
                 with trace_span(f"tool.execute.{fn_name}", {"tool.name": fn_name}):
                     try:
