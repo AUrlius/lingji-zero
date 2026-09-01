@@ -112,7 +112,8 @@ func summarizeUploads(p map[string]any) string {
 
 func captureAgentRes(inbox *store.InboxStore, fromDevice string, p map[string]any) {
 	status, _ := p["status"].(string)
-	if status == "connected" || status == "rejected" {
+	if status == "connected" || status == "rejected" || status == "activity" ||
+		status == "job_progress" || status == "hermes_session" {
 		return
 	}
 	agentID := fromDevice

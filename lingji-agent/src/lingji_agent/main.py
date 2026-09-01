@@ -1013,6 +1013,29 @@ async def main(config_path: str | None = None):
         router.register(MsgType.CMD_TEXT, on_cmd_text)
         router.register(MsgType.CMD_LIST_SESSIONS, on_cmd_list_sessions)
 
+        async def on_hermes_session(msg: Message):
+            """机要控制面：不进 LangGraph，不产生秘书聊天气泡。"""
+            from lingji_agent.execution.hermes_session import handle_hermes_session
+
+            conn_id, user_id = _resolve_web_client(msg)
+            action = str((msg.payload or {}).get("action") or "health")
+            result = handle_hermes_session(action)
+            logger.info(
+                "hermes_session action=%s unimplemented=%s hermes_status=%s",
+                result.get("action"),
+                result.get("unimplemented"),
+                result.get("hermes_status"),
+            )
+            await _send_agent_reply(
+                "",
+                target_device_id=conn_id,
+                target_user_id=user_id,
+                **result,
+                status="hermes_session",
+            )
+
+        router.register(MsgType.CMD_HERMES_SESSION, on_hermes_session)
+
         async def on_fleet_deliver(msg: Message):
             """Fleet Phase 3：Gateway 投递跨箱文件 → incoming_dir fast-path。"""
             uploads = msg.payload.get("uploads") or []

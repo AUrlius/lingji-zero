@@ -1,8 +1,10 @@
 """WS 消息协议模型（Sprint 1 T-1.2 + G6 attachments）
 
-6 种消息类型：AUTH_REQ, HEARTBEAT, CMD_TEXT, HITL_REQ, HITL_RES, AGENT_RES
+消息类型：AUTH_REQ, HEARTBEAT, CMD_TEXT, CMD_LIST_SESSIONS, CMD_HERMES_SESSION,
+HITL_REQ, HITL_RES, AGENT_RES, Fleet / Job 类型。
 AGENT_RES.payload 可含 attachments[]（G6 远程文件下载）
 AGENT_RES.payload.status=activity 时为运行阶段指示（非聊天）：phase=received|thinking|tool|waiting_hitl|idle
+AGENT_RES.payload.status=hermes_session 时机要控制面回执（非聊天）
 """
 
 import json
@@ -29,6 +31,7 @@ class MsgType(str, Enum):
     HEARTBEAT = "HEARTBEAT"
     CMD_TEXT = "CMD_TEXT"
     CMD_LIST_SESSIONS = "CMD_LIST_SESSIONS"
+    CMD_HERMES_SESSION = "CMD_HERMES_SESSION"
     HITL_REQ = "HITL_REQ"
     HITL_RES = "HITL_RES"
     AGENT_RES = "AGENT_RES"

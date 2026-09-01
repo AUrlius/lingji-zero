@@ -124,6 +124,25 @@
   var SESSION_LIST_LIMIT = 15;
   var activityStaleTimer = null;
   var ACTIVITY_STALE_MS = 90000;
+  var CACHE_HERMES_WANTED = 'lingji_hermes_wanted_on_v1';
+  var HERMES_IDLE_MS = 15 * 60 * 1000;
+  var HERMES_WARN_MS = 60 * 1000;
+  var HERMES_START_TIMEOUT_MS = 10000;
+  var HERMES_LABELS = {
+    off: '机要 · 未启动',
+    starting: '机要 · 启动中',
+    online: '机要 · 在线',
+    'idle-soon': '机要 · 将休眠',
+    hibernated: '机要 · 已休眠',
+  };
+  var hermesRuntime = 'off';
+  var hermesWantedOn = false;
+  var hermesLiveFromStart = false;
+  var hermesLastActivity = 0;
+  var hermesIdleTimer = null;
+  var hermesWarnTimer = null;
+  var hermesStartTimer = null;
+  var hermesBusy = false;
 
   function el(id) {
     return document.getElementById(id);
@@ -131,6 +150,175 @@
 
   function isOnline() {
     return ws && ws.readyState === WebSocket.OPEN && authenticated;
+  }
+
+  function loadHermesWanted() {
+    try { return localStorage.getItem(CACHE_HERMES_WANTED) === '1'; } catch (e) { return false; }
+  }
+
+  function saveHermesWanted(on) {
+    hermesWantedOn = !!on;
+    try { localStorage.setItem(CACHE_HERMES_WANTED, hermesWantedOn ? '1' : '0'); } catch (e) {}
+  }
+
+  function clearHermesIdleTimers() {
+    if (hermesIdleTimer) { clearTimeout(hermesIdleTimer); hermesIdleTimer = null; }
+    if (hermesWarnTimer) { clearTimeout(hermesWarnTimer); hermesWarnTimer = null; }
+  }
+
+  function armHermesIdle() {
+    clearHermesIdleTimers();
+    if (!hermesLiveFromStart || hermesRuntime === 'off' || hermesRuntime === 'hibernated') return;
+    if (hermesBusy) return;
+    hermesLastActivity = Date.now();
+    hermesIdleTimer = setTimeout(function () {
+      setHermesRuntime('idle-soon');
+      hermesWarnTimer = setTimeout(function () {
+        sendHermesSession('stop');
+        hermesLiveFromStart = false;
+        saveHermesWanted(false);
+        setHermesRuntime('hibernated');
+        UI().setHermesNote('已闲置休眠。需要时再启动机要。');
+      }, HERMES_WARN_MS);
+    }, HERMES_IDLE_MS);
+  }
+
+  function setHermesRuntime(state) {
+    hermesRuntime = state || 'off';
+    UI().setHermesPresence(hermesRuntime, HERMES_LABELS[hermesRuntime] || HERMES_LABELS.off);
+    var powerOn = hermesRuntime === 'online' || hermesRuntime === 'starting' || hermesRuntime === 'idle-soon';
+    var powerLabel = '启动机要';
+    if (hermesRuntime === 'starting') powerLabel = '启动中…';
+    else if (powerOn) powerLabel = '关闭机要';
+    else if (hermesRuntime === 'hibernated') powerLabel = '重新启动';
+    UI().setHermesPower(powerOn && hermesRuntime !== 'starting', powerLabel);
+    if (hermesRuntime === 'starting') UI().setHermesPower(false, powerLabel);
+  }
+
+  function sendHermesSession(action) {
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      UI().setHermesNote('网页未连接，无法联系机要控制面。');
+      return;
+    }
+    ws.send(JSON.stringify({
+      msg_id: 'hermes-' + (++msgId),
+      msg_type: 'CMD_HERMES_SESSION',
+      device_id: CONNECTION_ID,
+      timestamp: Date.now() / 1000,
+      payload: {
+        action: action,
+        user_id: USER_ID,
+        target_agent_id: DEFAULT_AGENT_ID,
+      },
+    }));
+  }
+
+  function applyHermesSession(p) {
+    if (hermesStartTimer) {
+      clearTimeout(hermesStartTimer);
+      hermesStartTimer = null;
+    }
+    var action = p.action || 'health';
+    var unimplemented = !!p.unimplemented;
+    var status = p.hermes_status || 'off';
+    var reason = p.reason || '';
+    UI().setHermesChannel('通道未接通');
+
+    if (action === 'health') {
+      if (status === 'online') {
+        setHermesRuntime('online');
+        UI().setHermesNote(reason || '进程在跑，入站通道未接通。');
+      } else {
+        hermesLiveFromStart = false;
+        setHermesRuntime(hermesRuntime === 'hibernated' ? 'hibernated' : 'off');
+        UI().setHermesNote(reason);
+      }
+      return;
+    }
+
+    if (unimplemented) {
+      hermesLiveFromStart = false;
+      saveHermesWanted(false);
+      setHermesRuntime('off');
+      UI().setHermesNote(reason || '启动未接线，避免假在线。');
+      return;
+    }
+
+    if (status === 'online') {
+      hermesLiveFromStart = true;
+      saveHermesWanted(true);
+      setHermesRuntime('online');
+      markHermesActivity();
+    } else {
+      hermesLiveFromStart = false;
+      saveHermesWanted(false);
+      setHermesRuntime(action === 'stop' ? 'off' : 'off');
+    }
+    if (reason) UI().setHermesNote(reason);
+  }
+
+  function markHermesActivity() {
+    hermesLastActivity = Date.now();
+    if (hermesRuntime === 'idle-soon') setHermesRuntime('online');
+    armHermesIdle();
+  }
+
+  function onHermesPowerClick() {
+    if (hermesRuntime === 'starting') return;
+    var running = hermesRuntime === 'online' || hermesRuntime === 'idle-soon';
+    if (running) {
+      if (hermesBusy && !window.confirm('机要正在执行任务，确定关闭？')) return;
+      saveHermesWanted(false);
+      sendHermesSession('stop');
+      return;
+    }
+    if (!isOnline()) {
+      UI().setHermesNote('网页未连接。');
+      return;
+    }
+    saveHermesWanted(true);
+    setHermesRuntime('starting');
+    UI().setHermesNote('正在请求空城记控制面…');
+    sendHermesSession('start');
+    if (hermesStartTimer) clearTimeout(hermesStartTimer);
+    hermesStartTimer = setTimeout(function () {
+      hermesStartTimer = null;
+      if (hermesRuntime === 'starting') {
+        hermesLiveFromStart = false;
+        saveHermesWanted(false);
+        setHermesRuntime('off');
+        UI().setHermesNote('调度不在线或尚未识别控制面消息，保持未启动。');
+      }
+    }, HERMES_START_TIMEOUT_MS);
+  }
+
+  function bindHermesDesk() {
+    hermesWantedOn = loadHermesWanted();
+    var paneOpen = false;
+    try { paneOpen = localStorage.getItem('lingji_hermes_pane_open_v1') === '1'; } catch (e) {}
+    UI().setHermesPaneOpen(paneOpen);
+    setHermesRuntime('off');
+    UI().setHermesChannel('通道未接通');
+    UI().setHermesNote('');
+
+    function togglePane() {
+      var open = el('app') && el('app').classList.contains('hermes-open');
+      UI().setHermesPaneOpen(!open);
+    }
+    var btnPane = el('btnHermesPane');
+    var btnCollapse = el('btnHermesCollapse');
+    var btnPower = el('btnHermesPower');
+    var chip = el('hermesPresence');
+    var overlay = el('hermesOverlay');
+    if (btnPane) btnPane.addEventListener('click', togglePane);
+    if (btnCollapse) btnCollapse.addEventListener('click', function () { UI().setHermesPaneOpen(false); });
+    if (chip) chip.addEventListener('click', function () { UI().setHermesPaneOpen(true); });
+    if (overlay) overlay.addEventListener('click', function () { UI().setHermesPaneOpen(false); });
+    if (btnPower) btnPower.addEventListener('click', onHermesPowerClick);
+    window.addEventListener('resize', function () {
+      var open = el('app') && el('app').classList.contains('hermes-open');
+      if (open) UI().setHermesPaneOpen(true);
+    });
   }
 
   function historyCacheKey(threadId, agentId) {
@@ -1139,6 +1327,7 @@
 
   function onConnected() {
     refreshOnlineAgents();
+    sendHermesSession('health');
     restoreHitlDock();
     fetchHitlPendingFromGateway();
     startHitlPolling();
@@ -1298,6 +1487,10 @@
         removeHitlPending(p.hitl_stale_task_id);
         resolveHitlOnGateway(p.hitl_stale_task_id, 'rejected');
       }
+      if (p.status === 'hermes_session') {
+        applyHermesSession(p);
+        return;
+      }
       if (p.status === 'activity') {
         applyAgentActivity(p);
         return;
@@ -1397,6 +1590,10 @@
         stopHitlPolling();
         stopJobPolling();
         clearActivityStaleTimer();
+        clearHermesIdleTimers();
+        if (hermesStartTimer) { clearTimeout(hermesStartTimer); hermesStartTimer = null; }
+        hermesLiveFromStart = false;
+        if (hermesRuntime === 'starting') setHermesRuntime('off');
         UI().setAgentActivity(null);
         authenticated = false;
         finishSessionSwitch();
@@ -1489,6 +1686,7 @@
   function init() {
     UI().setupKeyboardViewport();
     UI().setupChatScrollTracking();
+    bindHermesDesk();
     restoreFromCache();
     restoreHitlDock();
     renderAgentSelect();

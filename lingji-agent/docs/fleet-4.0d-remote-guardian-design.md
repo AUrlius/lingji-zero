@@ -15,7 +15,7 @@
 | `scripts/playbooks/*.sh` + `job_invoke` | OpenClaw HTTP（本切片忽略） |
 | 调度 `secretary_guard`：跨机运维禁止 `execute_command` | Hermes Permission Proxy（4.0d-4） |
 | **4.0d-3** 范围内 HITL 由空城记硬代批；敏感升级用户 dock | `job_invoke_hermes` / Hermes 入站 |
-| Web 董事长办公桌（v0.1.11）：默认只聊空城记；侧栏工单；对话内步骤卡；员工在线 | 用户直选青铜剑当聊天对象（仅 `?debug=1`） |
+| Web 董事长办公桌（v0.1.18）：默认只聊空城记；侧栏工单；**机要栏三栏空态**（收起≠关机；`CMD_HERMES_SESSION` stub；右栏「通道未接通」） | 用户直选青铜剑当聊天对象（仅 `?debug=1`）；**秘书 HITL 拒后话术调教（联考 ④，本期不做）**；**机要右栏真会话（待入站）** |
 
 飞书 ↔ Hermes 仅 **break-glass**，不是产品主路径。
 

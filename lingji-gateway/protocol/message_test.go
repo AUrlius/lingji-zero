@@ -122,7 +122,7 @@ func TestRoundTrip(t *testing.T) {
 }
 
 func TestAllMsgTypes(t *testing.T) {
-	types := []MsgType{MsgAuthReq, MsgHeartbeat, MsgCmdText, MsgCmdListSessions, MsgHitlReq, MsgHitlRes, MsgAgentRes}
+	types := []MsgType{MsgAuthReq, MsgHeartbeat, MsgCmdText, MsgCmdListSessions, MsgCmdHermesSession, MsgHitlReq, MsgHitlRes, MsgAgentRes}
 	for _, mt := range types {
 		msg := NewMessage(mt, "test", nil)
 		if msg.MsgType != mt {

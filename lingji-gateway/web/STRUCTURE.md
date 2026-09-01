@@ -19,6 +19,11 @@ web/
 |----|------|
 | `sidebarOverlay` | 侧栏遮罩 |
 | `sidebar` | 侧栏容器 |
+| `hermesOverlay` | 机要栏窄屏遮罩 |
+| `hermesPane` | 右侧机要栏（默认收起） |
+| `hermesPresence` | 顶栏机要状态 |
+| `btnHermesPane` | 展开/收起机要栏（不等于启停） |
+| `btnHermesPower` | 启停机要（`CMD_HERMES_SESSION` stub） |
 | `btnNewChat` | 新对话按钮 |
 | `sessionList` | 会话列表 |
 | `status` | 连接状态 |

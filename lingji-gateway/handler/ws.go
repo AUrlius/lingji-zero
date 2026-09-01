@@ -203,6 +203,14 @@ func (h *WSHandler) routeMessage(msgType protocol.MsgType, fromDevice string, ra
 			h.notifyDelayed(fromDevice, pcID)
 		}
 
+	case protocol.MsgCmdHermesSession:
+		// 机要控制面只打空城记，忽略 debug 下拉里的青铜剑。
+		pcID := SchedulerAgentID
+		if !h.hub.SendToDevice(pcID, raw) {
+			log.Printf("[Route] 机要控制面：调度 %s 不在线，入离线队列", pcID)
+			h.queue.Enqueue(pcID, string(raw))
+		}
+
 	case protocol.MsgAgentRes:
 		DeliverDownstream(h.hub, h.queue, raw)
 

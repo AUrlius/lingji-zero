@@ -661,11 +661,71 @@
     toggleSidebar: function () {
       el('sidebar').classList.toggle('open');
       el('sidebarOverlay').classList.toggle('open');
+      if (el('sidebar').classList.contains('open') && window.LingjiUI.isNarrow()) {
+        window.LingjiUI.setHermesPaneOpen(false);
+      }
     },
 
     closeSidebar: function () {
       el('sidebar').classList.remove('open');
       el('sidebarOverlay').classList.remove('open');
+    },
+
+    isNarrow: function () {
+      return window.matchMedia && window.matchMedia('(max-width: 768px)').matches;
+    },
+
+    setHermesPaneOpen: function (on) {
+      var app = el('app');
+      var pane = el('hermesPane');
+      var overlay = el('hermesOverlay');
+      var btn = el('btnHermesPane');
+      var open = !!on;
+      if (app) app.classList.toggle('hermes-open', open);
+      if (pane) {
+        pane.setAttribute('aria-hidden', open ? 'false' : 'true');
+        if (open) pane.removeAttribute('inert');
+        else pane.setAttribute('inert', '');
+      }
+      if (overlay) {
+        overlay.classList.toggle('open', open && window.LingjiUI.isNarrow());
+      }
+      if (btn) {
+        btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+        btn.textContent = open ? '收起' : '机要';
+      }
+      try { localStorage.setItem('lingji_hermes_pane_open_v1', open ? '1' : '0'); } catch (e) {}
+      if (open && window.LingjiUI.isNarrow()) {
+        window.LingjiUI.closeSidebar();
+      }
+    },
+
+    setHermesPresence: function (state, label) {
+      var chip = el('hermesPresence');
+      if (!chip) return;
+      var st = state || 'off';
+      chip.className = 'hermes-presence state-' + st;
+      chip.textContent = label || '机要 · 未启动';
+    },
+
+    setHermesPower: function (isOn, label) {
+      var btn = el('btnHermesPower');
+      if (!btn) return;
+      btn.classList.toggle('is-on', !!isOn);
+      btn.textContent = label || (isOn ? '关闭机要' : '启动机要');
+    },
+
+    setHermesNote: function (text) {
+      var note = el('hermesNote');
+      if (!note) return;
+      var t = (text || '').trim();
+      note.hidden = !t;
+      note.textContent = t;
+    },
+
+    setHermesChannel: function (text) {
+      var ch = el('hermesChannel');
+      if (ch) ch.textContent = text || '通道未接通';
     },
   };
 })();

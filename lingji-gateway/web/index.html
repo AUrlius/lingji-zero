@@ -7,10 +7,11 @@
 <meta name="mobile-web-app-capable" content="yes">
 <title>灵机</title>
 <meta name="theme-color" content="#111318">
-<link rel="stylesheet" href="/css/app.css?v=0.1.17">
+<link rel="stylesheet" href="/css/app.css?v=0.1.18">
 </head>
 <body>
 <div id="sidebarOverlay" class="sidebar-overlay" onclick="LingjiUI.closeSidebar()"></div>
+<div id="hermesOverlay" class="hermes-overlay"></div>
 <div id="app">
   <aside id="sidebar" class="sidebar">
     <div class="sidebar-brand">灵机</div>
@@ -28,6 +29,7 @@
         <div class="header-meta">
           <div class="status off" id="status">未连接</div>
           <div class="staff-presence" id="staffPresence">员工 · 青铜剑 …</div>
+          <button type="button" class="hermes-presence" id="hermesPresence" title="机要栏">机要 · 未启动</button>
           <div class="agent-activity" id="agentActivity" hidden aria-live="polite">
             <span class="agent-activity-dot" aria-hidden="true"></span>
             <span class="agent-activity-label" id="agentActivityLabel"></span>
@@ -35,6 +37,7 @@
           <select id="agentSelect" class="agent-select debug-only" title="对话调度 Agent" aria-label="对话调度 Agent"></select>
         </div>
       </div>
+      <button type="button" id="btnHermesPane" class="hermes-pane-btn" aria-label="机要栏" aria-expanded="false">机要</button>
       <button type="button" id="btnTheme" class="theme-btn" aria-label="切换主题">🌙</button>
     </div>
 
@@ -64,10 +67,26 @@
       </div>
     </div>
   </div>
+
+  <aside id="hermesPane" class="hermes-pane" aria-label="机要" aria-hidden="true" inert>
+    <div class="hermes-pane-head">
+      <div class="hermes-pane-title">机要</div>
+      <button type="button" id="btnHermesCollapse" class="hermes-collapse-btn">收起</button>
+    </div>
+    <div class="hermes-pane-body">
+      <p class="hermes-copy">空城记本机通道。不是第二秘书；跨机事务请走中间栏交给调度。</p>
+      <p class="hermes-channel" id="hermesChannel">通道未接通</p>
+      <p class="hermes-note" id="hermesNote" hidden></p>
+      <button type="button" id="btnHermesPower" class="hermes-power-btn">启动机要</button>
+    </div>
+    <div class="hermes-composer">
+      <textarea id="hermesInput" rows="2" placeholder="通道未接通" disabled></textarea>
+    </div>
+  </aside>
 </div>
 
-<script src="/js/ui.js?v=0.1.17"></script>
-<script src="/js/lingji-api.js?v=0.1.17"></script>
+<script src="/js/ui.js?v=0.1.18"></script>
+<script src="/js/lingji-api.js?v=0.1.18"></script>
 <script>
 (function () {
   var STORAGE_KEY = 'lingji_theme';

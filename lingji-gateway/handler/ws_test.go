@@ -187,6 +187,74 @@ func TestRouteToTargetAgent(t *testing.T) {
 	}
 }
 
+func TestRouteHermesSessionAlwaysLaptop(t *testing.T) {
+	h := hub.New(120 * time.Second)
+	go h.Run()
+	defer h.Stop()
+
+	q := queue.NewOfflineQueue(16)
+	fleet := NewFleetHandler(h, config.DefaultConfig(), q, nil, nil, nil)
+	ws := NewWSHandler(h, config.DefaultConfig(), q, nil, nil, fleet)
+
+	pcCh := make(chan []byte, 4)
+	laptopCh := make(chan []byte, 4)
+	h.Register(&hub.Client{DeviceID: "lingji-pc", Send: pcCh, LastBeat: time.Now()})
+	h.Register(&hub.Client{DeviceID: "lingji-laptop", Send: laptopCh, LastBeat: time.Now()})
+	time.Sleep(10 * time.Millisecond)
+
+	cmd := protocol.NewMessage(protocol.MsgCmdHermesSession, "phone-1", map[string]any{
+		"action":          "start",
+		"target_agent_id": "lingji-pc",
+	})
+	raw, err := cmd.ToJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ws.routeMessage(protocol.MsgCmdHermesSession, "phone-1", []byte(raw))
+
+	select {
+	case got := <-laptopCh:
+		if string(got) != raw {
+			t.Fatalf("laptop got unexpected payload: %s", got)
+		}
+	default:
+		t.Fatal("CMD_HERMES_SESSION must go to lingji-laptop")
+	}
+
+	select {
+	case <-pcCh:
+		t.Fatal("lingji-pc must not receive CMD_HERMES_SESSION")
+	default:
+	}
+}
+
+func TestRouteHermesSessionOfflineQueuesLaptop(t *testing.T) {
+	h := hub.New(120 * time.Second)
+	go h.Run()
+	defer h.Stop()
+
+	q := queue.NewOfflineQueue(16)
+	fleet := NewFleetHandler(h, config.DefaultConfig(), q, nil, nil, nil)
+	ws := NewWSHandler(h, config.DefaultConfig(), q, nil, nil, fleet)
+
+	cmd := protocol.NewMessage(protocol.MsgCmdHermesSession, "phone-1", map[string]any{
+		"action": "health",
+	})
+	raw, err := cmd.ToJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ws.routeMessage(protocol.MsgCmdHermesSession, "phone-1", []byte(raw))
+
+	queued := q.DequeueAll("lingji-laptop")
+	if len(queued) != 1 || queued[0] != raw {
+		t.Fatalf("expected laptop offline queue, got %#v", queued)
+	}
+	if q.Len("lingji-pc") != 0 {
+		t.Fatal("must not queue CMD_HERMES_SESSION for lingji-pc")
+	}
+}
+
 func TestRouteDefaultAgent(t *testing.T) {
 	h := hub.New(120 * time.Second)
 	go h.Run()
