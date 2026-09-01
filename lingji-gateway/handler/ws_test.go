@@ -162,8 +162,8 @@ func TestRouteToTargetAgent(t *testing.T) {
 	time.Sleep(10 * time.Millisecond)
 
 	cmd := protocol.NewMessage(protocol.MsgCmdText, "phone-1", map[string]any{
-		"text":             "hello laptop",
-		"target_agent_id":  "lingji-laptop",
+		"text":            "hello laptop",
+		"target_agent_id": "lingji-laptop",
 	})
 	raw, err := cmd.ToJSON()
 	if err != nil {
@@ -225,5 +225,48 @@ func TestIsAgentDevice(t *testing.T) {
 	}
 	if IsAgentDevice("phone-abc") || IsAgentDevice("pending-127.0.0.1") {
 		t.Fatal("non lingji-* should not be agent devices")
+	}
+}
+
+func TestDeliverDownstreamSchedulerHitlSkipsUser(t *testing.T) {
+	h := hub.New(120 * time.Second)
+	go h.Run()
+	defer h.Stop()
+
+	q := queue.NewOfflineQueue(16)
+	fleet := NewFleetHandler(h, config.DefaultConfig(), q, nil, nil, nil)
+	ws := NewWSHandler(h, config.DefaultConfig(), q, nil, nil, fleet)
+
+	userCh := make(chan []byte, 4)
+	schedCh := make(chan []byte, 4)
+	h.Register(&hub.Client{DeviceID: "web-1", UserID: "user-1", Send: userCh, LastBeat: time.Now()})
+	h.Register(&hub.Client{DeviceID: "lingji-laptop", Send: schedCh, LastBeat: time.Now()})
+	time.Sleep(10 * time.Millisecond)
+
+	msg := protocol.NewMessage(protocol.MsgHitlReq, "lingji-pc", map[string]any{
+		"task_id":            "t-del",
+		"target_user_id":     "user-1",
+		"escalation":         "scheduler",
+		"scheduler_agent_id": "lingji-laptop",
+		"agent_id":           "lingji-pc",
+	})
+	raw, err := msg.ToJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ws.deliverDownstream([]byte(raw))
+
+	select {
+	case got := <-schedCh:
+		if string(got) != raw {
+			t.Fatalf("scheduler got unexpected payload")
+		}
+	default:
+		t.Fatal("lingji-laptop should receive delegated HITL_REQ")
+	}
+	select {
+	case <-userCh:
+		t.Fatal("user dock should not receive escalation=scheduler HITL_REQ")
+	default:
 	}
 }

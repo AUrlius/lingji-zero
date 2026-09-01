@@ -84,6 +84,41 @@ async def get_job(
         return {"error": f"get job 请求失败: {e}"}
 
 
+async def list_jobs(
+    user_id: str,
+    *,
+    limit: int = 30,
+    host: str | None = None,
+    port: int | None = None,
+    auth_token: str | None = None,
+) -> dict:
+    """GET /v1/jobs?user_id="""
+    uid = (user_id or "").strip()
+    if not uid:
+        return {"error": "user_id 不能为空", "jobs": []}
+    token = auth_token if auth_token is not None else os.getenv("LINGJI_AUTH_TOKEN", "")
+    base = _gateway_base_url(host, port)
+    url = f"{base}/v1/jobs?user_id={uid}&limit={int(limit)}"
+    if token:
+        url += f"&token={token}"
+    headers: dict[str, str] = {}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as session:
+            resp = await session.get(url, headers=headers)
+            if resp.status_code >= 400:
+                return {"error": f"list jobs 失败 ({resp.status_code}): {resp.text[:200]}", "jobs": []}
+            data = resp.json()
+            if not isinstance(data, dict):
+                return {"jobs": []}
+            if not isinstance(data.get("jobs"), list):
+                data["jobs"] = []
+            return data
+    except Exception as e:
+        return {"error": f"list jobs 请求失败: {e}", "jobs": []}
+
+
 def _auth_headers(token: str) -> dict[str, str]:
     headers: dict[str, str] = {"Content-Type": "application/json"}
     if token:

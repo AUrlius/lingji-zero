@@ -1,6 +1,6 @@
 # Fleet 4.0 — Job Workflow (Engineering Summary)
 
-> **Status**: **4.0a implemented** (2026-07-08) · **4.0d-2 秘书台 MVP coded** (2026-08-31，档 A playbook.sh + `JOB_DELEGATE`；Hermes 入站 / `job_invoke_hermes` **未做**)  
+> **Status**: **4.0a implemented** (2026-07-08) · **4.0d-2 秘书台 MVP** (2026-08-31) · **4.0d-3 调度代批 HITL coded** (2026-09-01)；Hermes 入站 / `job_invoke_hermes` / 4.0d-4 **未做**  
 > **Full spec**: [Sprint Fleet 4.0 — Job 工作流、调度层与分级验收](../../../../docs/sprints/第六阶段：编码实现与测试/Sprint Fleet 4.0 — Job 工作流、调度层与分级验收.md)  
 > **4.0d spec**: [fleet-4.0d-remote-guardian-design.md](./fleet-4.0d-remote-guardian-design.md)  
 > **Runbook**: [fleet-4.0d-remote-guardian-runbook.md](./fleet-4.0d-remote-guardian-runbook.md)  
@@ -57,6 +57,7 @@ FLEET_ACK                → update job step S4
 ## Scheduler tools
 
 - `job_get`、`job_create_fleet_transfer`、**`job_invoke`**（档 A：建 LJ-* + dispatch playbook）
+- `hitl_list_pending`、`hitl_delegate_respond`（4.0d-3 兜底；主路径为空城记 HITL_REQ 硬代批）
 - `job_invoke_hermes`（档 B，未做）
 
 Default scheduler: **`lingji-laptop`（空城记）** when user is mobile; **`lingji-pc`（青铜剑）** when co-located. See 4.0d.
@@ -80,7 +81,8 @@ LJ-A1B2C3D4 失败：接收机未确认（…）。详情 GET /v1/jobs/LJ-A1B2C3
 | **4.0c** | Hermes bridge + playbooks |
 | **4.0d-1** | Web default `lingji-laptop` + `scheduler` config + Job `scheduler_agent_id` | ✅ coded |
 | **4.0d-2** | `approval_scope` + 档 A playbooks + `JOB_DELEGATE` + Web 办公桌 | ✅ coded |
-| **4.0d-3/4** | Delegated HITL; Hermes Permission Proxy | 未做 |
+| **4.0d-3** | Delegated HITL（范围内空城记代批，敏感升级用户 dock） | ✅ coded |
+| **4.0d-4** | Hermes Permission Proxy | 未做 |
 
 ## Existing code anchors
 

@@ -6,7 +6,8 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <title>灵机</title>
-<link rel="stylesheet" href="/css/app.css?v=0.1.11">
+<meta name="theme-color" content="#111318">
+<link rel="stylesheet" href="/css/app.css?v=0.1.15">
 </head>
 <body>
 <div id="sidebarOverlay" class="sidebar-overlay" onclick="LingjiUI.closeSidebar()"></div>
@@ -24,13 +25,15 @@
       <button type="button" class="menu-btn" onclick="LingjiUI.toggleSidebar()" aria-label="菜单">☰</button>
       <div class="header-main">
         <h1>灵机</h1>
-        <div class="status off" id="status">未连接</div>
-        <div class="staff-presence" id="staffPresence">员工 · 青铜剑 …</div>
-        <div class="agent-activity" id="agentActivity" hidden aria-live="polite">
-          <span class="agent-activity-dot" aria-hidden="true"></span>
-          <span class="agent-activity-label" id="agentActivityLabel"></span>
+        <div class="header-meta">
+          <div class="status off" id="status">未连接</div>
+          <div class="staff-presence" id="staffPresence">员工 · 青铜剑 …</div>
+          <div class="agent-activity" id="agentActivity" hidden aria-live="polite">
+            <span class="agent-activity-dot" aria-hidden="true"></span>
+            <span class="agent-activity-label" id="agentActivityLabel"></span>
+          </div>
+          <select id="agentSelect" class="agent-select debug-only" title="对话调度 Agent" aria-label="对话调度 Agent"></select>
         </div>
-        <select id="agentSelect" class="agent-select debug-only" title="对话调度 Agent" aria-label="对话调度 Agent"></select>
       </div>
       <button type="button" id="btnTheme" class="theme-btn" aria-label="切换主题">🌙</button>
     </div>
@@ -63,8 +66,8 @@
   </div>
 </div>
 
-<script src="/js/ui.js?v=0.1.11"></script>
-<script src="/js/lingji-api.js?v=0.1.11"></script>
+<script src="/js/ui.js?v=0.1.15"></script>
+<script src="/js/lingji-api.js?v=0.1.15"></script>
 <script>
 (function () {
   var STORAGE_KEY = 'lingji_theme';

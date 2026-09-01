@@ -24,6 +24,7 @@ BASE_SYSTEM_PROMPT = """你是灵机助手，运行在用户的个人电脑上�
 10. 跨 Agent 传文件时 fleet_send_file 会自动创建 LJ-* 任务；传输完成后 Gateway 会推送「LJ-xxx 已完成」。用户问任务进度时用 job_get
 11. 若本机为**调度 Agent / 秘书**：用户只与你对话；涉及上海值守机（青铜剑 lingji-pc）的执行必须用 job_invoke 或 fleet_send_file，**禁止** execute_command / find 找文件。跨机运维 playbook：agent.status、agent.restart、git-pull-deploy、fleet-smoke。
 12. 对用户结案用一句话并带 LJ-* 工单号；进度以 Job 台账为准，不要空口承诺已完成。
+13. 值守机 CRITICAL 在进行中 Job 的 approval_scope 内由系统代批，不要再问用户确认。
 
 ## 当前环境
 - 设备: {device_id}

@@ -37,7 +37,7 @@ from lingji_agent.cognitive.orchestrator import (
 from lingji_agent.cognitive.session_history import load_thread_ui_history
 from lingji_agent.cognitive.prompt_manager import PromptManager
 from lingji_agent.execution.registry import registry
-from lingji_agent.execution.tools import fs_tools, sys_tools, file_tools, fleet_tools, job_tools  # noqa: 触发 @registry.register
+from lingji_agent.execution.tools import fs_tools, sys_tools, file_tools, fleet_tools, job_tools, hitl_delegate_tools  # noqa: 触发 @registry.register
 from lingji_agent.execution.hitl import (
     HITLManager,
     build_recovered_context,
@@ -305,6 +305,7 @@ async def main(config_path: str | None = None):
                     "跨机传文件用 fleet_send_file；运维用 job_invoke(playbook=agent.status 等)。"
                     "禁止本机 execute_command 做 find/重启/发给青铜剑。"
                     "对用户给一句话结案并带 LJ-*。"
+                    "值守机 CRITICAL 在进行中 Job 的 approval_scope 内由系统代批，不要再问用户确认。"
                 )
             sched = (config.scheduler.scheduler_agent_id or "").strip()
             if sched and sched != config.network.device_id:
@@ -395,6 +396,20 @@ async def main(config_path: str | None = None):
             if task and not task.done():
                 task.cancel()
 
+        async def _hitl_job_fields(user_id: str, tool: str, args: dict) -> dict:
+            from lingji_agent.execution.delegated_hitl import attach_job_fields, pick_job_from_list
+            from lingji_agent.network.job_client import list_jobs
+
+            job = None
+            try:
+                data = await list_jobs(user_id)
+                job = pick_job_from_list(data.get("jobs") or [], config.network.device_id)
+            except Exception as exc:
+                logger.warning("HITL bind job failed: %s", exc)
+            return attach_job_fields(
+                job, tool, args, executor_id=config.network.device_id,
+            )
+
         async def _send_hitl_requests(result: dict, pending: PendingRun) -> None:
             for payload in extract_interrupt_payloads(result):
                 task_id = payload.get("task_id", "")
@@ -402,30 +417,43 @@ async def main(config_path: str | None = None):
                     continue
                 pending_runs[task_id] = pending
                 run_metrics.increment("hitl_interrupt_total")
+                tool = payload.get("tool", "") or ""
+                args = payload.get("args") if isinstance(payload.get("args"), dict) else {}
+                user_id = pending.user_id or pending.device_id
+                extra = await _hitl_job_fields(user_id, tool, args)
                 if client.ws and not getattr(client.ws, "closed", False):
+                    hitl_payload = {
+                        "task_id": task_id,
+                        "description": payload.get("description", ""),
+                        "risk_level": "critical",
+                        "tool": tool,
+                        "tool_args": args,
+                        "thread_id": pending.thread_id,
+                        "agent_id": config.network.device_id,
+                        "target_device_id": pending.device_id,
+                        "target_user_id": user_id,
+                    }
+                    hitl_payload.update(extra)
                     hitl_msg = Message(
                         msg_type=MsgType.HITL_REQ,
                         device_id=config.network.device_id,
-                        payload={
-                            "task_id": task_id,
-                            "description": payload.get("description", ""),
-                            "risk_level": "critical",
-                            "tool": payload.get("tool", ""),
-                            "thread_id": pending.thread_id,
-                            "agent_id": config.network.device_id,
-                            "target_device_id": pending.device_id,
-                            "target_user_id": pending.user_id or pending.device_id,
-                        },
+                        payload=hitl_payload,
                     )
                     await client.send(hitl_msg)
-                    logger.info("已发送 HITL_REQ: task=%s", task_id)
-                    await _send_activity(
-                        "waiting_hitl",
-                        detail=payload.get("tool", "") or "",
-                        target_device_id=pending.device_id,
-                        target_user_id=pending.user_id or pending.device_id,
-                        thread_id=pending.thread_id,
+                    logger.info(
+                        "已发送 HITL_REQ: task=%s escalation=%s job=%s",
+                        task_id,
+                        extra.get("escalation"),
+                        extra.get("job_id"),
                     )
+                    if extra.get("escalation") != "scheduler":
+                        await _send_activity(
+                            "waiting_hitl",
+                            detail=tool,
+                            target_device_id=pending.device_id,
+                            target_user_id=user_id,
+                            thread_id=pending.thread_id,
+                        )
                 _cancel_hitl_watchdog(task_id)
                 _schedule_hitl_watchdog(task_id)
 
@@ -1185,6 +1213,33 @@ async def main(config_path: str | None = None):
 
         router.register(MsgType.JOB_DELEGATE, on_job_delegate)
 
+        async def on_hitl_req(msg: Message):
+            if not is_scheduler_agent():
+                return
+            from lingji_agent.execution.delegated_hitl import handle_scheduler_hitl_req
+            from lingji_agent.network.job_client import get_job
+
+            action = await handle_scheduler_hitl_req(
+                dict(msg.payload or {}),
+                send=client.send,
+                get_job=get_job,
+                device_id=config.network.device_id,
+            )
+            if action == "approved":
+                logger.info(
+                    "delegated HITL approved task=%s job=%s",
+                    (msg.payload or {}).get("task_id"),
+                    (msg.payload or {}).get("job_id"),
+                )
+            elif action == "escalate_user":
+                logger.info(
+                    "delegated HITL escalate user task=%s job=%s",
+                    (msg.payload or {}).get("task_id"),
+                    (msg.payload or {}).get("job_id"),
+                )
+
+        router.register(MsgType.HITL_REQ, on_hitl_req)
+
         async def on_hitl_res(msg: Message):
             decision = msg.payload.get("decision", "rejected")
             task_id = msg.payload.get("task_id", "")
@@ -1272,18 +1327,26 @@ async def main(config_path: str | None = None):
                     continue
 
                 if client.ws and not getattr(client.ws, "closed", False):
+                    extra = await _hitl_job_fields(
+                        _pending_user_id(pending),
+                        session.get("tool") or "",
+                        {},
+                    )
+                    rec_payload = {
+                        "task_id": task_id,
+                        "description": session["description"],
+                        "risk_level": session["risk_level"],
+                        "recovered": True,
+                        "resumable": True,
+                        "target_device_id": pending.device_id,
+                        "target_user_id": _pending_user_id(pending),
+                        "agent_id": config.network.device_id,
+                    }
+                    rec_payload.update(extra)
                     hitl_msg = Message(
                         msg_type=MsgType.HITL_REQ,
                         device_id=config.network.device_id,
-                        payload={
-                            "task_id": task_id,
-                            "description": session["description"],
-                            "risk_level": session["risk_level"],
-                            "recovered": True,
-                            "resumable": True,
-                            "target_device_id": pending.device_id,
-                            "target_user_id": _pending_user_id(pending),
-                        },
+                        payload=rec_payload,
                     )
                     await client.send(hitl_msg)
                 _schedule_hitl_watchdog(task_id, created_at)

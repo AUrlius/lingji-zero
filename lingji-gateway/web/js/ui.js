@@ -12,6 +12,128 @@
     return chat.scrollHeight - chat.scrollTop - chat.clientHeight <= threshold;
   }
 
+  function escapeHtml(s) {
+    return String(s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+  }
+
+  function applyInlineMd(s) {
+    return s
+      .replace(/`([^`]+)`/g, '<code class="md-code">$1</code>')
+      .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  }
+
+  function isMdTableSep(line) {
+    return /^\|?[\s:\-|]+\|?$/.test(line) && line.indexOf('-') !== -1;
+  }
+
+  function renderMdTable(lines) {
+    var rows = [];
+    lines.forEach(function (line) {
+      if (isMdTableSep(line)) return;
+      rows.push(line.replace(/^\|/, '').replace(/\|$/, '').split('|').map(function (c) {
+        return applyInlineMd(c.trim());
+      }));
+    });
+    if (!rows.length) return '';
+    var head = rows[0];
+    var body = rows.slice(1);
+    var html = '<div class="md-table-wrap"><table class="md-table"><thead><tr>';
+    html += head.map(function (c) { return '<th>' + c + '</th>'; }).join('');
+    html += '</tr></thead><tbody>';
+    html += body.map(function (r) {
+      return '<tr>' + r.map(function (c) { return '<td>' + c + '</td>'; }).join('') + '</tr>';
+    }).join('');
+    html += '</tbody></table></div>';
+    return html;
+  }
+
+  function renderSafeMarkdown(raw) {
+    if (!raw) return '';
+    var text = escapeHtml(raw).replace(/\r\n/g, '\n');
+    var fences = [];
+    text = text.replace(/```[\w-]*\n?([\s\S]*?)```/g, function (_, code) {
+      var i = fences.length;
+      fences.push('<pre class="md-pre"><code>' + code.replace(/\n$/, '') + '</code></pre>');
+      return '\n\n%%FENCE' + i + '%%\n\n';
+    });
+    return text.split(/\n{2,}/).map(function (block) {
+      var trimmed = block.trim();
+      if (!trimmed) return '';
+      var fence = /^%%FENCE(\d+)%%$/.exec(trimmed);
+      if (fence) return fences[Number(fence[1])] || '';
+      var lines = block.split('\n');
+      var nonempty = lines.filter(function (l) { return l.trim(); });
+      var tableLines = nonempty.filter(function (l) { return l.indexOf('|') !== -1; });
+      if (tableLines.length >= 2 && tableLines.length === nonempty.length) {
+        return renderMdTable(tableLines);
+      }
+      if (nonempty.length && nonempty.every(function (l) { return /^[-*]\s/.test(l.trim()); })) {
+        return '<ul class="md-list">' + nonempty.map(function (l) {
+          return '<li>' + applyInlineMd(l.trim().replace(/^[-*]\s/, '')) + '</li>';
+        }).join('') + '</ul>';
+      }
+      return '<p class="md-p">' + applyInlineMd(trimmed.replace(/\n/g, '<br>')) + '</p>';
+    }).join('');
+  }
+
+  function fillMessage(m, cls, text, attachments, lingjiFiles) {
+    if (cls === 'user' || cls === 'agent') {
+      var who = document.createElement('div');
+      who.className = 'msg-role';
+      who.textContent = cls === 'user' ? '你' : '空城记';
+      m.appendChild(who);
+    }
+    if (text) {
+      var body = document.createElement('div');
+      body.className = 'msg-body';
+      if (cls === 'agent') body.innerHTML = renderSafeMarkdown(text);
+      else body.textContent = text;
+      m.appendChild(body);
+    }
+    appendAttachments(m, attachments);
+    appendLingjiFiles(m, lingjiFiles);
+  }
+
+  function removeTyping() {
+    var chat = el('chat');
+    if (!chat) return;
+    var n = chat.querySelector('.msg.typing');
+    if (n) n.remove();
+  }
+
+  function upsertTyping(label) {
+    var chat = el('chat');
+    if (!chat) return;
+    var n = chat.querySelector('.msg.typing');
+    if (!n) {
+      n = document.createElement('div');
+      n.className = 'msg agent typing';
+      n.setAttribute('aria-live', 'polite');
+      var who = document.createElement('div');
+      who.className = 'msg-role';
+      who.textContent = '空城记';
+      n.appendChild(who);
+      var row = document.createElement('div');
+      row.className = 'typing-row';
+      var dots = document.createElement('span');
+      dots.className = 'typing-dots';
+      dots.setAttribute('aria-hidden', 'true');
+      dots.innerHTML = '<i></i><i></i><i></i>';
+      var lab = document.createElement('span');
+      lab.className = 'typing-label';
+      row.appendChild(dots);
+      row.appendChild(lab);
+      n.appendChild(row);
+      chat.appendChild(n);
+    }
+    var labEl = n.querySelector('.typing-label');
+    if (labEl) labEl.textContent = label || '处理中';
+    window.LingjiUI.scrollChatToBottom(false);
+  }
+
   function appendLingjiFiles(parent, lingjiFiles) {
     if (!lingjiFiles || !lingjiFiles.length) return;
     var box = document.createElement('div');
@@ -68,15 +190,10 @@
         if (!item) return;
         if (!item.text && !(item.attachments && item.attachments.length)
             && !(item.lingji_files && item.lingji_files.length)) return;
+        var role = item.role === 'user' ? 'user' : 'agent';
         const m = document.createElement('div');
-        m.className = 'msg ' + (item.role === 'user' ? 'user' : 'agent');
-        if (item.text) {
-          const textNode = document.createElement('div');
-          textNode.textContent = item.text;
-          m.appendChild(textNode);
-        }
-        appendAttachments(m, item.attachments);
-        appendLingjiFiles(m, item.lingji_files);
+        m.className = 'msg ' + role;
+        fillMessage(m, role, item.text, item.attachments, item.lingji_files);
         frag.appendChild(m);
       });
       chat.innerHTML = '';
@@ -88,15 +205,10 @@
     appendMessage: function (cls, text, attachments, lingjiFiles) {
       const chat = el('chat');
       if (!chat) return;
+      if (cls === 'user' || cls === 'agent') removeTyping();
       const m = document.createElement('div');
       m.className = 'msg ' + cls;
-      if (text) {
-        const textNode = document.createElement('div');
-        textNode.textContent = text;
-        m.appendChild(textNode);
-      }
-      appendAttachments(m, attachments);
-      appendLingjiFiles(m, lingjiFiles);
+      fillMessage(m, cls, text, attachments, lingjiFiles);
       chat.appendChild(m);
       window.LingjiUI.scrollChatToBottom(cls === 'user');
     },
@@ -106,6 +218,7 @@
     },
 
     showHitlCard: function (payload, onDecision, onDismiss) {
+      if (payload && payload.escalation === 'scheduler') return;
       const taskId = payload.task_id || '';
       const dock = el('hitlDock');
       if (!dock) return;
@@ -201,9 +314,10 @@
       dock.classList.remove('visible');
     },
 
-    renderJobList: function (jobs, onSelect) {
+    renderJobList: function (jobs, onSelect, fmt) {
       const list = el('jobList');
       if (!list) return;
+      fmt = fmt || {};
       list.innerHTML = '';
       (jobs || []).forEach(function (j) {
         const btn = document.createElement('button');
@@ -212,15 +326,25 @@
         const id = document.createElement('span');
         id.className = 'job-id';
         id.textContent = j.job_id || '';
-        const st = document.createElement('span');
-        st.className = 'job-status';
-        st.textContent = j.status || '';
+        const pill = document.createElement('span');
+        var label = fmt.statusLabel ? fmt.statusLabel(j.status) : (j.status || '');
+        pill.className = 'job-pill job-pill-' + (j.status || 'planned');
+        pill.textContent = label;
+        const time = document.createElement('span');
+        time.className = 'job-time';
+        var rel = (fmt.formatRelative && j.updated_at) ? fmt.formatRelative(j.updated_at) : '';
+        var clock = (fmt.formatClock && j.updated_at) ? fmt.formatClock(j.updated_at) : '';
+        var bits = [];
+        if (rel) bits.push(rel);
+        if (clock) bits.push(clock);
+        time.textContent = bits.join(' · ');
         const intent = document.createElement('span');
         intent.className = 'job-intent';
         intent.textContent = j.intent || j.playbook || '';
         btn.appendChild(id);
-        btn.appendChild(st);
+        btn.appendChild(pill);
         btn.appendChild(intent);
+        btn.appendChild(time);
         if (typeof onSelect === 'function') {
           btn.addEventListener('click', function () { onSelect(j); });
         }
@@ -234,24 +358,68 @@
       }
     },
 
-    upsertJobCard: function (job) {
+    upsertJobCard: function (job, fmt) {
       const chat = el('chat');
       if (!chat || !job || !job.job_id) return;
+      fmt = fmt || {};
       var existing = chat.querySelector('.msg.job-card[data-job-id="' + job.job_id + '"]');
       const m = existing || document.createElement('div');
-      m.className = 'msg job-card';
+      m.className = 'msg job-card artifact';
       m.dataset.jobId = job.job_id;
       m.innerHTML = '';
       const head = document.createElement('div');
       head.className = 'job-card-head';
-      head.textContent = (job.job_id || '') + ' · ' + (job.status || '');
+      head.textContent = job.job_id || '';
       m.appendChild(head);
-      if (job.intent) {
-        const intent = document.createElement('div');
-        intent.className = 'job-card-intent';
-        intent.textContent = job.intent;
-        m.appendChild(intent);
+
+      var closed = job.status === 'completed' || job.status === 'failed';
+      var durationEnd = closed ? (job.closed_at || job.updated_at) : '';
+      var durationText = (closed && fmt.formatDuration)
+        ? fmt.formatDuration(job.created_at, durationEnd)
+        : '';
+      const progress = document.createElement('div');
+      progress.className = 'job-card-progress';
+      if (job.status === 'completed') {
+        progress.classList.add('is-done');
+        progress.textContent = durationText ? ('已完成，耗时 ' + durationText) : '已完成';
+      } else if (job.status === 'failed') {
+        progress.classList.add('is-failed');
+        progress.textContent = durationText ? ('失败，耗时 ' + durationText) : '失败';
+      } else {
+        progress.classList.add('is-busy');
+        progress.textContent = '处理中';
       }
+      m.appendChild(progress);
+
+      function addMeta(label, value) {
+        if (!value) return;
+        const row = document.createElement('div');
+        row.className = 'job-card-meta';
+        row.textContent = label + '：' + value;
+        m.appendChild(row);
+      }
+
+      var executorId = '';
+      if (job.plan && job.plan.executor_id) executorId = job.plan.executor_id;
+      if (!executorId && job.steps) {
+        for (var i = 0; i < job.steps.length; i++) {
+          if (job.steps[i].executor_id) {
+            executorId = job.steps[i].executor_id;
+            break;
+          }
+        }
+      }
+
+      addMeta('意图', job.intent);
+      addMeta('剧本', job.playbook);
+      addMeta('执行机', executorId ? (fmt.executorLabel ? fmt.executorLabel(executorId) : executorId) : '');
+      addMeta('交办', fmt.formatClock ? fmt.formatClock(job.created_at) : job.created_at);
+      addMeta('更新', fmt.formatClock ? fmt.formatClock(job.updated_at) : job.updated_at);
+      if (job.closed_at && closed) {
+        addMeta('结案', fmt.formatClock ? fmt.formatClock(job.closed_at) : job.closed_at);
+      }
+      addMeta('摘要', job.summary || job.error);
+
       const ul = document.createElement('ul');
       ul.className = 'job-steps';
       (job.steps || []).forEach(function (st) {
@@ -261,7 +429,15 @@
         if (st.status === 'completed') mark = '✓';
         else if (st.status === 'failed') mark = '✕';
         else if (st.status === 'running' || st.status === 'dispatched') mark = '…';
-        li.textContent = mark + ' ' + (st.name || st.step_id) + ' · ' + (st.status || '');
+        var stepBits = [mark + ' ' + (st.name || st.step_id)];
+        var stepStatus = fmt.statusLabel ? fmt.statusLabel(st.status) : (st.status || '');
+        if (stepStatus) stepBits.push(stepStatus);
+        var stepTimes = [];
+        if (st.started_at && fmt.formatClock) stepTimes.push(fmt.formatClock(st.started_at));
+        if (st.completed_at && fmt.formatClock) stepTimes.push(fmt.formatClock(st.completed_at));
+        if (stepTimes.length) stepBits.push(stepTimes.join('–'));
+        if (st.error) stepBits.push(st.error);
+        li.textContent = stepBits.join(' · ');
         ul.appendChild(li);
       });
       m.appendChild(ul);
@@ -362,14 +538,21 @@
       });
     },
 
-    setConnectionStatus: function (text, on) {
+    setConnectionStatus: function (text, on, hint) {
       const s = el('status');
       if (!s) return;
       s.textContent = text;
       s.className = on ? 'status' : 'status off';
+      if (hint) s.title = hint;
+      else s.removeAttribute('title');
       if (!on) {
         window.LingjiUI.setAgentActivity(null);
       }
+    },
+
+    setHeaderTitle: function (title) {
+      var h = document.querySelector('.header h1');
+      if (h) h.textContent = title || '灵机';
     },
 
     setAgentActivity: function (phase, detail, stale) {
@@ -380,6 +563,7 @@
         box.hidden = true;
         box.classList.remove('visible', 'stale');
         label.textContent = '';
+        removeTyping();
         return;
       }
       var textMap = {
@@ -388,15 +572,19 @@
         tool: '执行工具' + (detail ? '：' + detail : '…'),
         waiting_hitl: '等待审批（见顶部批准条）',
       };
-      label.textContent = textMap[phase] || phase;
+      var shown = textMap[phase] || phase;
+      label.textContent = shown;
       if (stale) {
-        label.textContent = '仍在运行，若久无响应请查看 HITL 或刷新';
+        shown = '仍在运行，若久无响应请查看 HITL 或刷新';
+        label.textContent = shown;
         box.classList.add('stale');
       } else {
         box.classList.remove('stale');
       }
       box.hidden = false;
       box.classList.add('visible');
+      if (phase === 'waiting_hitl') removeTyping();
+      else upsertTyping(stale ? shown : (phase === 'thinking' || phase === 'received' ? '处理中' : shown));
     },
 
     setComposerDisabled: function (on) {

@@ -38,6 +38,15 @@ func TestHitlHandlerPendingAndRespond(t *testing.T) {
 	cfg := &config.Config{AuthToken: "tok"}
 	h := handler.NewHitlHandler(cfg, hitl)
 
+	_ = hitl.UpsertPending(&store.HitlPending{
+		TaskID:           "t-sched-hide",
+		UserID:           "user-1",
+		AgentID:          "lingji-pc",
+		Escalation:       "scheduler",
+		SchedulerAgentID: "lingji-laptop",
+		JobID:            "LJ-HIDE",
+	})
+
 	req := httptest.NewRequest(http.MethodGet, "/v1/hitl/pending?user_id=user-1&token=tok", nil)
 	rec := httptest.NewRecorder()
 	h.HandlePending(rec, req)
@@ -53,16 +62,39 @@ func TestHitlHandlerPendingAndRespond(t *testing.T) {
 		t.Fatalf("pending = %#v", body["pending"])
 	}
 
+	reqSched := httptest.NewRequest(http.MethodGet, "/v1/hitl/pending?user_id=user-1&escalation=scheduler&token=tok", nil)
+	recSched := httptest.NewRecorder()
+	h.HandlePending(recSched, reqSched)
+	if recSched.Code != http.StatusOK {
+		t.Fatalf("scheduler pending status = %d", recSched.Code)
+	}
+	var schedBody map[string]any
+	if err := json.Unmarshal(recSched.Body.Bytes(), &schedBody); err != nil {
+		t.Fatal(err)
+	}
+	schedRaw, ok := schedBody["pending"].([]any)
+	if !ok || len(schedRaw) != 1 {
+		t.Fatalf("scheduler pending = %#v", schedBody["pending"])
+	}
+
 	payload, _ := json.Marshal(map[string]string{
 		"task_id":         "t-hitl-1",
 		"decision":        "approved",
 		"target_agent_id": "lingji-laptop",
+		"responded_by":    "scheduler",
 	})
 	req2 := httptest.NewRequest(http.MethodPost, "/v1/hitl/respond?token=tok", bytes.NewReader(payload))
 	rec2 := httptest.NewRecorder()
 	h.HandleRespond(rec2, req2)
 	if rec2.Code != http.StatusOK {
 		t.Fatalf("respond status = %d", rec2.Code)
+	}
+	var respondBody map[string]any
+	if err := json.Unmarshal(rec2.Body.Bytes(), &respondBody); err != nil {
+		t.Fatal(err)
+	}
+	if respondBody["responded_by"] != "scheduler" {
+		t.Fatalf("responded_by = %#v", respondBody["responded_by"])
 	}
 
 	req3 := httptest.NewRequest(http.MethodGet, "/v1/hitl/pending?user_id=user-1&token=tok", nil)
@@ -92,35 +124,45 @@ func TestCaptureHitlMessageReqAndRes(t *testing.T) {
 
 	reqRaw := []byte(`{
 		"msg_type":"HITL_REQ",
-		"device_id":"lingji-laptop",
+		"device_id":"lingji-pc",
 		"payload":{
-			"task_id":"cap-1",
+			"task_id":"cap-sched",
 			"target_user_id":"user-cap",
-			"agent_id":"lingji-laptop",
+			"agent_id":"lingji-pc",
 			"thread_id":"user-cap:1",
-			"description":"rm -rf",
+			"description":"uname",
 			"tool":"execute_command",
-			"risk_level":"critical"
+			"risk_level":"critical",
+			"job_id":"LJ-CAP",
+			"escalation":"scheduler",
+			"scheduler_agent_id":"lingji-laptop"
 		}
 	}`)
-	handler.CaptureHitlMessage(hitl, "HITL_REQ", "lingji-laptop", reqRaw)
+	handler.CaptureHitlMessage(hitl, "HITL_REQ", "lingji-pc", reqRaw)
 
-	items, err := hitl.ListPending("user-cap")
+	dock, err := hitl.ListPending("user-cap")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(items) != 1 || items[0].TaskID != "cap-1" {
+	if len(dock) != 0 {
+		t.Fatalf("scheduler HITL must be hidden from user list: %+v", dock)
+	}
+	items, err := hitl.ListPendingFiltered("user-cap", "scheduler")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 || items[0].JobID != "LJ-CAP" || items[0].Escalation != "scheduler" {
 		t.Fatalf("after REQ: %+v", items)
 	}
 
 	resRaw := []byte(`{
 		"msg_type":"HITL_RES",
 		"device_id":"web-conn",
-		"payload":{"task_id":"cap-1","decision":"approved"}
+		"payload":{"task_id":"cap-sched","decision":"approved"}
 	}`)
 	handler.CaptureHitlMessage(hitl, "HITL_RES", "web-conn", resRaw)
 
-	items, err = hitl.ListPending("user-cap")
+	items, err = hitl.ListPendingFiltered("user-cap", "scheduler")
 	if err != nil {
 		t.Fatal(err)
 	}

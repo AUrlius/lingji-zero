@@ -57,14 +57,17 @@ func captureHitlReq(hitl *store.HitlPendingStore, fromAgent string, p map[string
 		risk = "critical"
 	}
 	entry := &store.HitlPending{
-		TaskID:      taskID,
-		UserID:      userID,
-		AgentID:     agentID,
-		ThreadID:    threadID,
-		Description: desc,
-		Tool:        tool,
-		RiskLevel:   risk,
-		Status:      "pending",
+		TaskID:           taskID,
+		UserID:           userID,
+		AgentID:          agentID,
+		ThreadID:         threadID,
+		Description:      desc,
+		Tool:             tool,
+		RiskLevel:        risk,
+		Status:           "pending",
+		JobID:            strPayload(p, "job_id"),
+		Escalation:       strPayload(p, "escalation"),
+		SchedulerAgentID: strPayload(p, "scheduler_agent_id"),
 	}
 	if err := hitl.UpsertPending(entry); err != nil {
 		log.Printf("[HITL] capture REQ: %v", err)
@@ -84,4 +87,9 @@ func captureHitlRes(hitl *store.HitlPendingStore, p map[string]any) {
 	if err := hitl.Resolve(taskID, status); err != nil {
 		log.Printf("[HITL] capture RES: %v", err)
 	}
+}
+
+func strPayload(p map[string]any, key string) string {
+	s, _ := p[key].(string)
+	return s
 }

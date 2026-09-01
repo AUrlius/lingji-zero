@@ -47,7 +47,8 @@ func (h *HitlHandler) HandlePending(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "user_id required", http.StatusBadRequest)
 		return
 	}
-	items, err := h.hitl.ListPending(userID)
+	esc := r.URL.Query().Get("escalation")
+	items, err := h.hitl.ListPendingFiltered(userID, esc)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -72,6 +73,7 @@ func (h *HitlHandler) HandleRespond(w http.ResponseWriter, r *http.Request) {
 		TaskID        string `json:"task_id"`
 		Decision      string `json:"decision"`
 		TargetAgentID string `json:"target_agent_id"`
+		RespondedBy   string `json:"responded_by"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, "invalid json", http.StatusBadRequest)
@@ -88,5 +90,8 @@ func (h *HitlHandler) HandleRespond(w http.ResponseWriter, r *http.Request) {
 		}
 		_ = h.hitl.Resolve(body.TaskID, status)
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"status": "ok"})
+	writeJSON(w, http.StatusOK, map[string]any{
+		"status":       "ok",
+		"responded_by": body.RespondedBy,
+	})
 }

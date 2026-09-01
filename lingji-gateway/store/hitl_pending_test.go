@@ -83,3 +83,50 @@ func TestHitlPendingUpsertListResolve(t *testing.T) {
 		t.Fatalf("resolved HITL must not reopen on UpsertPending, pending len = %d", len(items))
 	}
 }
+
+func TestHitlPendingSchedulerHiddenFromUserList(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "inbox.db")
+	inbox, err := store.OpenInboxStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer inbox.Close()
+
+	hitl, err := store.NewHitlPendingFromDB(inbox.DB())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := hitl.UpsertPending(&store.HitlPending{
+		TaskID:           "t-sched",
+		UserID:           "user-abc",
+		AgentID:          "lingji-pc",
+		Escalation:       "scheduler",
+		SchedulerAgentID: "lingji-laptop",
+		JobID:            "LJ-1",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := hitl.UpsertPending(&store.HitlPending{
+		TaskID:     "t-user",
+		UserID:     "user-abc",
+		AgentID:    "lingji-pc",
+		Escalation: "user",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	dock, err := hitl.ListPending("user-abc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(dock) != 1 || dock[0].TaskID != "t-user" {
+		t.Fatalf("user dock = %+v", dock)
+	}
+	sched, err := hitl.ListPendingFiltered("user-abc", "scheduler")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sched) != 1 || sched[0].JobID != "LJ-1" {
+		t.Fatalf("scheduler list = %+v", sched)
+	}
+}

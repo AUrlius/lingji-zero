@@ -37,13 +37,13 @@ type pendingTransfer struct {
 
 // FleetHandler orchestrates cross-agent file relay (Fleet Phase 3).
 type FleetHandler struct {
-	hub      *hub.Hub
-	config   *config.Config
-	queue    *queue.OfflineQueue
-	inbox    *store.InboxStore
-	registry *store.FileRegistryStore
-	jobs     *store.JobStore
-	pending  map[string]*pendingTransfer
+	hub       *hub.Hub
+	config    *config.Config
+	queue     *queue.OfflineQueue
+	inbox     *store.InboxStore
+	registry  *store.FileRegistryStore
+	jobs      *store.JobStore
+	pending   map[string]*pendingTransfer
 	pendingMu sync.RWMutex
 }
 
@@ -109,12 +109,12 @@ func (f *FleetHandler) HandleTransfer(w http.ResponseWriter, r *http.Request) {
 	if toUser != "" {
 		summary, attachments := f.buildUserDelivery(req.FromAgentID, toUser, req.Uploads)
 		reply := protocol.NewMessage(protocol.MsgAgentRes, req.FromAgentID, map[string]any{
-			"text":             summary,
-			"target_user_id":   toUser,
-			"thread_id":        req.ThreadID,
-			"transfer_id":      transferID,
-			"fleet_status":     "delivered",
-			"attachments":      attachments,
+			"text":           summary,
+			"target_user_id": toUser,
+			"thread_id":      req.ThreadID,
+			"transfer_id":    transferID,
+			"fleet_status":   "delivered",
+			"attachments":    attachments,
 		})
 		raw, err := reply.ToJSON()
 		if err != nil {
@@ -123,7 +123,7 @@ func (f *FleetHandler) HandleTransfer(w http.ResponseWriter, r *http.Request) {
 		}
 		DeliverDownstream(f.hub, f.queue, []byte(raw))
 		CaptureFleetTransfer(f.inbox, req.ThreadID, toUser, req.FromAgentID, summary)
-	writeJSON(w, http.StatusOK, map[string]any{
+		writeJSON(w, http.StatusOK, map[string]any{
 			"transfer_id": transferID,
 			"status":      "delivered",
 			"to_user_id":  toUser,
@@ -183,10 +183,10 @@ func (f *FleetHandler) HandleTransfer(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"transfer_id":  transferID,
-		"status":       status,
-		"to_agent_id":  toAgent,
-		"job_id":       strings.TrimSpace(req.JobID),
+		"transfer_id": transferID,
+		"status":      status,
+		"to_agent_id": toAgent,
+		"job_id":      strings.TrimSpace(req.JobID),
 	})
 }
 
@@ -437,6 +437,19 @@ func DeliverDownstream(h *hub.Hub, q *queue.OfflineQueue, raw []byte) {
 		log.Printf("[Route] 下行消息解析失败，fallback 广播: %v", err)
 		h.BroadcastToAll(raw, DefaultAgentID)
 		return
+	}
+
+	if msg.MsgType == protocol.MsgHitlReq {
+		esc, _ := msg.Payload["escalation"].(string)
+		sched, _ := msg.Payload["scheduler_agent_id"].(string)
+		if esc == "scheduler" && sched != "" {
+			if h.SendToDevice(sched, raw) {
+				return
+			}
+			log.Printf("[Route] 调度 HITL 目标 %s 不在线，入离线队列", sched)
+			q.Enqueue(sched, string(raw))
+			return
+		}
 	}
 
 	targetUser, _ := msg.Payload["target_user_id"].(string)

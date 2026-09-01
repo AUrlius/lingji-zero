@@ -41,6 +41,11 @@ def _parse_expires_at(raw: str) -> datetime | None:
     return parsed.astimezone(timezone.utc)
 
 
+ESCALATION_SCHEDULER = "scheduler"
+ESCALATION_USER = "user"
+_JOB_ACTIVE_STATUS = frozenset({"running", "dispatched", "waiting"})
+
+
 def default_scope(playbook_id: str, *, now: datetime | None = None) -> dict:
     """Default 1h Mission 预授权：单 playbook、LingjiZero 路径前缀、Tier 0 免批。"""
     now_utc = _as_utc(now)
@@ -49,6 +54,7 @@ def default_scope(playbook_id: str, *, now: datetime | None = None) -> dict:
         "playbooks": [playbook_id],
         "allowed_paths": list(_DEFAULT_ALLOWED_PATHS),
         "auto_approve_tier0": True,
+        "auto_approve_hitl_in_scope": True,
     }
 
 
@@ -92,3 +98,89 @@ def validate_path(scope: dict | None, path: str) -> tuple[bool, str]:
         if isinstance(prefix, str) and _path_under_prefix(path, prefix):
             return True, ""
     return False, "path not in approval_scope"
+
+
+def job_binds_executor(job: dict | None, executor_id: str) -> bool:
+    if not job or not executor_id:
+        return False
+    plan = job.get("plan") if isinstance(job.get("plan"), dict) else {}
+    if (plan or {}).get("executor_id") == executor_id:
+        return True
+    for st in job.get("steps") or []:
+        if isinstance(st, dict) and (st.get("executor_id") or "") == executor_id:
+            return True
+    return False
+
+
+def pick_active_job_for_executor(jobs: list | None, executor_id: str) -> dict | None:
+    """Newest active Job whose plan/steps bind this executor."""
+    candidates: list[dict] = []
+    for job in jobs or []:
+        if not isinstance(job, dict):
+            continue
+        if (job.get("status") or "") not in _JOB_ACTIVE_STATUS:
+            continue
+        if job_binds_executor(job, executor_id):
+            candidates.append(job)
+    if not candidates:
+        return None
+    candidates.sort(key=lambda j: str(j.get("updated_at") or ""), reverse=True)
+    return candidates[0]
+
+
+def _command_allowed(scope: dict, command: str) -> bool:
+    allowed: list[Any] = scope.get("allowed_commands") or []
+    if not allowed:
+        return True
+    cmd = (command or "").strip()
+    for prefix in allowed:
+        if not isinstance(prefix, str):
+            continue
+        p = prefix.strip()
+        if p and (cmd == p or cmd.startswith(p)):
+            return True
+    return False
+
+
+def classify_hitl(
+    scope: dict | None,
+    tool: str,
+    args: dict | None = None,
+    *,
+    now: datetime | None = None,
+) -> str:
+    """Return scheduler | user for a Job-bound CRITICAL interrupt.
+
+    Caller must only invoke this when an active Job is already bound.
+    Missing/expired scope, explicit opt-out, sensitive paths → user.
+    """
+    if not scope:
+        return ESCALATION_USER
+    now_utc = _as_utc(now)
+    expires = _parse_expires_at(str(scope.get("expires_at") or ""))
+    if expires is None or expires < now_utc:
+        return ESCALATION_USER
+    if scope.get("auto_approve_hitl_in_scope") is False:
+        return ESCALATION_USER
+
+    fn = (tool or "").strip()
+    raw_args = args if isinstance(args, dict) else {}
+
+    if fn == "delete_file":
+        path = str(raw_args.get("path") or "")
+        if not path:
+            return ESCALATION_USER
+        ok, _reason = validate_path(scope, path)
+        return ESCALATION_SCHEDULER if ok else ESCALATION_USER
+
+    if fn == "execute_command":
+        cwd = str(raw_args.get("cwd") or "")
+        if cwd:
+            ok, _reason = validate_path(scope, cwd)
+            if not ok:
+                return ESCALATION_USER
+        if not _command_allowed(scope, str(raw_args.get("command") or "")):
+            return ESCALATION_USER
+        return ESCALATION_SCHEDULER
+
+    return ESCALATION_USER

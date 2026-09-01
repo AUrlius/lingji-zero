@@ -181,19 +181,87 @@
     });
   }
 
-  function formatRelativeTime(raw) {
-    if (!raw) return '';
+  function parseJobDate(raw) {
+    if (!raw) return null;
     var d = new Date(raw);
     if (isNaN(d.getTime())) {
       d = new Date(String(raw).replace(' ', 'T') + 'Z');
     }
-    if (isNaN(d.getTime())) return '';
+    return isNaN(d.getTime()) ? null : d;
+  }
+
+  function formatRelativeTime(raw) {
+    var d = parseJobDate(raw);
+    if (!d) return '';
     var sec = Math.floor((Date.now() - d.getTime()) / 1000);
     if (sec < 60) return '刚刚';
     if (sec < 3600) return Math.floor(sec / 60) + ' 分钟前';
     if (sec < 86400) return Math.floor(sec / 3600) + ' 小时前';
     if (sec < 604800) return Math.floor(sec / 86400) + ' 天前';
     return d.toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' });
+  }
+
+  function formatJobClock(raw) {
+    var d = parseJobDate(raw);
+    if (!d) return '';
+    var now = new Date();
+    var sameDay = d.getFullYear() === now.getFullYear()
+      && d.getMonth() === now.getMonth()
+      && d.getDate() === now.getDate();
+    if (sameDay) {
+      return d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false });
+    }
+    return d.toLocaleString('zh-CN', {
+      month: 'numeric',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    });
+  }
+
+  function formatJobDuration(startRaw, endRaw) {
+    var start = parseJobDate(startRaw);
+    var end = parseJobDate(endRaw);
+    if (!start || !end) return '';
+    var sec = Math.max(0, Math.floor((end.getTime() - start.getTime()) / 1000));
+    if (sec < 60) return sec + ' 秒';
+    if (sec < 3600) {
+      var mins = Math.floor(sec / 60);
+      var rem = sec % 60;
+      return mins + ' 分' + (rem ? ' ' + rem + ' 秒' : '');
+    }
+    var h = Math.floor(sec / 3600);
+    var m = Math.floor((sec % 3600) / 60);
+    return h + ' 小时' + (m ? m + ' 分' : '');
+  }
+
+  function jobStatusLabel(status) {
+    var map = {
+      completed: '已完成',
+      failed: '失败',
+      running: '处理中',
+      dispatched: '处理中',
+      planned: '已创建',
+      created: '已创建',
+      waiting: '处理中',
+      pending: '待执行',
+    };
+    return map[status] || status || '';
+  }
+
+  function jobIsClosed(job) {
+    return !!(job && (job.status === 'completed' || job.status === 'failed'));
+  }
+
+  function jobUiFmt() {
+    return {
+      statusLabel: jobStatusLabel,
+      formatRelative: formatRelativeTime,
+      formatClock: formatJobClock,
+      formatDuration: formatJobDuration,
+      executorLabel: agentLabel,
+    };
   }
 
   function sortSessions(list) {
@@ -376,6 +444,9 @@
       if (!resp.ok) return;
       var data = await resp.json();
       var items = Array.isArray(data.pending) ? data.pending : [];
+      items = items.filter(function (item) {
+        return !item || item.escalation !== 'scheduler';
+      });
       syncHitlPendingFromGateway(items);
     } catch (e) {}
   }
@@ -405,13 +476,22 @@
     });
     UI().renderJobList(jobs, function (job) {
       applyJob(job, true);
-    });
+    }, jobUiFmt());
   }
 
   function restoreJobCards() {
+    var fmt = jobUiFmt();
+    var closed = [];
     Object.keys(trackedJobs).forEach(function (id) {
       var job = trackedJobs[id];
-      if (jobIsActive(job)) UI().upsertJobCard(job);
+      if (jobIsActive(job)) UI().upsertJobCard(job, fmt);
+      else if (jobIsClosed(job)) closed.push(job);
+    });
+    closed.sort(function (a, b) {
+      return String(b.updated_at || '').localeCompare(String(a.updated_at || ''));
+    });
+    closed.slice(0, 8).forEach(function (job) {
+      UI().upsertJobCard(job, fmt);
     });
   }
 
@@ -420,7 +500,7 @@
     trackedJobs[job.job_id] = job;
     renderTrackedJobList();
     if (showCard || jobIsActive(job)) {
-      UI().upsertJobCard(job);
+      UI().upsertJobCard(job, jobUiFmt());
     }
   }
 
@@ -444,7 +524,8 @@
       if (!resp.ok) return;
       var data = await resp.json();
       var items = Array.isArray(data.jobs) ? data.jobs : [];
-      items.forEach(function (j) { applyJob(j, jobIsActive(j)); });
+      items.forEach(function (j) { applyJob(j, false); });
+      restoreJobCards();
       if (!items.length) renderTrackedJobList();
     } catch (e) {}
   }
@@ -897,6 +978,8 @@
     }
     lastSessionListSig = sig;
     UI().renderSessionList(vis, activeThreadId, switchSession, agentLabel, formatRelativeTime);
+    var cur = vis.find(function (s) { return s.thread_id === activeThreadId; });
+    UI().setHeaderTitle(cur && cur.title ? cur.title : '灵机');
   }
 
   function requestSessionList() {
@@ -1123,9 +1206,10 @@
     refreshPendingUploads();
   }
 
-  function showHitlRequest(payload, skipPersist) {
-    var enriched = hitlPayloadWithAgent(payload);
-    if (!skipPersist) {
+    function showHitlRequest(payload, skipPersist) {
+      var enriched = hitlPayloadWithAgent(payload);
+      if (enriched.escalation === 'scheduler') return;
+      if (!skipPersist) {
       enriched.ts = Date.now();
       upsertHitlPending(enriched);
     }
@@ -1145,8 +1229,8 @@
       var p = msg.payload || {};
       if (p.status === 'connected') {
         authenticated = true;
-        UI().setConnectionStatus('已连接 (' + USER_ID + ')', true);
-        UI().appendSystem('✅ 认证成功');
+        UI().setConnectionStatus('已连接', true, USER_ID);
+        if (DEBUG_UI) UI().appendSystem('认证成功');
         onConnected();
         return;
       }
@@ -1234,7 +1318,7 @@
     try {
       ws = new WebSocket(url);
       ws.onopen = function () {
-        UI().setConnectionStatus('认证中... (' + USER_ID + ')', false);
+        UI().setConnectionStatus('认证中…', false, USER_ID);
         ws.send(JSON.stringify({
           msg_id: 'auth-' + (++msgId),
           msg_type: 'AUTH_REQ',
