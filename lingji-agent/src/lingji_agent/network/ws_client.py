@@ -22,6 +22,7 @@ class GatewayClient:
         self._running = False
         self._reconnect_delay = config.reconnect_delay
         self._heartbeat_task: asyncio.Task | None = None
+        self._dispatch_tasks: set[asyncio.Task] = set()
         self._on_connected_callbacks: list = []
 
     @property
@@ -114,20 +115,29 @@ class GatewayClient:
         except asyncio.CancelledError:
             pass
 
+    async def _dispatch_one(self, msg: Message) -> None:
+        """单条消息处理；失败不影响接收循环。"""
+        try:
+            await self.router.dispatch(msg)
+        except Exception as e:
+            logger.warning("消息处理失败: %s", e)
+
     async def _listen(self):
-        """消息接收循环"""
+        """消息接收循环。CMD_TEXT / 图执行不得阻塞后续 LIST_SESSIONS / HITL / Fleet。"""
         from websockets.exceptions import ConnectionClosed
         while True:
             try:
                 raw = await asyncio.wait_for(self.ws.recv(), timeout=30)
                 msg = Message.from_json(raw)
-                await self.router.dispatch(msg)
+                task = asyncio.create_task(self._dispatch_one(msg))
+                self._dispatch_tasks.add(task)
+                task.add_done_callback(self._dispatch_tasks.discard)
             except asyncio.TimeoutError:
                 continue
             except ConnectionClosed:
                 raise
             except Exception as e:
-                logger.warning("消息处理失败: %s", e)
+                logger.warning("消息接收失败: %s", e)
 
     async def send(self, msg: Message):
         """发送消息"""
@@ -145,6 +155,9 @@ class GatewayClient:
         if self._heartbeat_task:
             self._heartbeat_task.cancel()
             self._heartbeat_task = None
+        for task in list(self._dispatch_tasks):
+            task.cancel()
+        self._dispatch_tasks.clear()
         if self.ws:
             await self.ws.close()
             self.ws = None

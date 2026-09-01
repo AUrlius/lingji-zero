@@ -188,6 +188,11 @@
       const frag = document.createDocumentFragment();
       (history || []).forEach(function (item) {
         if (!item) return;
+        var text = item.text || '';
+        if (/^已切换到/.test(text.trim()) || text.trim() === '正在同步会话列表…'
+            || text.trim() === '正在加载会话…') {
+          return;
+        }
         if (!item.text && !(item.attachments && item.attachments.length)
             && !(item.lingji_files && item.lingji_files.length)) return;
         var role = item.role === 'user' ? 'user' : 'agent';
@@ -205,6 +210,10 @@
     appendMessage: function (cls, text, attachments, lingjiFiles) {
       const chat = el('chat');
       if (!chat) return;
+      var t = String(text || '').trim();
+      if (cls === 'system' && (/^已切换到/.test(t) || t === '正在同步会话列表…')) {
+        return;
+      }
       if (cls === 'user' || cls === 'agent') removeTyping();
       const m = document.createElement('div');
       m.className = 'msg ' + cls;
@@ -350,12 +359,6 @@
         }
         list.appendChild(btn);
       });
-      if (!(jobs || []).length) {
-        const empty = document.createElement('div');
-        empty.className = 'job-empty';
-        empty.textContent = '暂无工单';
-        list.appendChild(empty);
-      }
     },
 
     upsertJobCard: function (job, fmt) {
@@ -462,7 +465,13 @@
         main.className = 'session-main';
         const title = document.createElement('span');
         title.className = 'session-title';
-        title.textContent = s.title || '新交办';
+        title.textContent = (function () {
+          var t = String(s.title || '新交办').replace(/\s+/g, ' ').trim();
+          t = t.replace(/\[用户上传文件\][^\n]*/g, '').replace(/\s+/g, ' ').trim();
+          if (t.length > 36) t = t.slice(0, 34) + '…';
+          return t || '新交办';
+        })();
+        title.title = s.title || '新交办';
         main.appendChild(title);
         if (formatTimeFn && s.updated_at) {
           const time = document.createElement('span');
@@ -552,7 +561,11 @@
 
     setHeaderTitle: function (title) {
       var h = document.querySelector('.header h1');
-      if (h) h.textContent = title || '灵机';
+      if (!h) return;
+      var t = (title || '灵机').replace(/\s+/g, ' ').trim();
+      t = t.replace(/\[用户上传文件\][^\n]*/g, '').replace(/\s+/g, ' ').trim();
+      if (t.length > 28) t = t.slice(0, 26) + '…';
+      h.textContent = t || '灵机';
     },
 
     setAgentActivity: function (phase, detail, stale) {
@@ -590,8 +603,10 @@
     setComposerDisabled: function (on) {
       const sendBtn = el('btnSend');
       const input = el('input');
+      const file = el('fileInput');
       if (sendBtn) sendBtn.disabled = on;
       if (input) input.disabled = on;
+      if (file) file.disabled = on;
     },
 
     getInputText: function () {

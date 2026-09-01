@@ -64,6 +64,18 @@ class TestExtractUiHistory:
         assert out[0]["text"] == "50"
         assert out[-1]["text"] == "59"
 
+    def test_skips_switch_banner(self):
+        msgs = [
+            {"role": "user", "content": "你好"},
+            {"role": "assistant", "content": "已切换到：把文件发给青铜剑"},
+            {"role": "assistant", "content": "好的"},
+        ]
+        out = extract_ui_history(msgs)
+        assert out == [
+            {"role": "user", "text": "你好"},
+            {"role": "agent", "text": "好的"},
+        ]
+
 
 @pytest.mark.asyncio
 async def test_load_thread_ui_history_from_checkpoint():

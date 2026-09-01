@@ -121,6 +121,7 @@
   var JOB_ACTIVE_STATUS = {
     planned: 1, created: 1, running: 1, dispatched: 1, waiting: 1,
   };
+  var SESSION_LIST_LIMIT = 15;
   var activityStaleTimer = null;
   var ACTIVITY_STALE_MS = 90000;
 
@@ -160,11 +161,18 @@
     }
   }
 
+  function isHistoryNoise(item) {
+    var t = String((item && item.text) || '').trim();
+    return /^已切换到/.test(t)
+      || t === '正在同步会话列表…'
+      || t === '正在加载会话…';
+  }
+
   function mergeHistoryPreferLonger(localHist, serverHist) {
     var local = localHist || [];
     var server = serverHist || [];
-    if (server.length > local.length) return server;
-    return local;
+    var picked = server.length > local.length ? server : local;
+    return picked.filter(function (item) { return !isHistoryNoise(item); });
   }
 
   function enrichHistoryFromInbox(threadId, agentId, currentHist) {
@@ -470,37 +478,75 @@
   }
 
   function renderTrackedJobList() {
-    var jobs = Object.keys(trackedJobs).map(function (id) { return trackedJobs[id]; });
+    var jobs = Object.keys(trackedJobs).map(function (id) { return trackedJobs[id]; })
+      .filter(function (j) { return jobIsActive(j); });
     jobs.sort(function (a, b) {
       return String(b.updated_at || '').localeCompare(String(a.updated_at || ''));
     });
+    var live = el('liveJobsLabel');
+    var list = el('jobList');
+    if (live) live.hidden = !jobs.length;
+    if (list) list.hidden = !jobs.length;
     UI().renderJobList(jobs, function (job) {
-      applyJob(job, true);
+      openJobInDesk(job);
     }, jobUiFmt());
+  }
+
+  function sessionMatchingJob(job) {
+    if (!job) return null;
+    var vis = visibleSessions();
+    var jid = job.job_id || '';
+    var intent = (job.intent || '').slice(0, 18);
+    var num = String(job.intent || '').match(/\d{6,}/);
+    return vis.find(function (s) {
+      var t = s.title || '';
+      if (jid && t.indexOf(jid) >= 0) return true;
+      if (num && t.indexOf(num[0]) >= 0) return true;
+      if (intent && t.indexOf(intent) >= 0) return true;
+      return false;
+    }) || null;
+  }
+
+  function openJobInDesk(job) {
+    if (!job) return;
+    var sess = sessionMatchingJob(job);
+    if (sess && sess.thread_id && sess.thread_id !== activeThreadId) {
+      job._uiThread = sess.thread_id;
+      trackedJobs[job.job_id] = job;
+      switchSession(sess.thread_id);
+      return;
+    }
+    if (activeThreadId) job._uiThread = activeThreadId;
+    applyJob(job, true);
+    UI().closeSidebar();
   }
 
   function restoreJobCards() {
     var fmt = jobUiFmt();
-    var closed = [];
     Object.keys(trackedJobs).forEach(function (id) {
       var job = trackedJobs[id];
-      if (jobIsActive(job)) UI().upsertJobCard(job, fmt);
-      else if (jobIsClosed(job)) closed.push(job);
-    });
-    closed.sort(function (a, b) {
-      return String(b.updated_at || '').localeCompare(String(a.updated_at || ''));
-    });
-    closed.slice(0, 8).forEach(function (job) {
-      UI().upsertJobCard(job, fmt);
+      if (!job) return;
+      if (!job._uiThread) {
+        var sess = sessionMatchingJob(job);
+        if (sess) job._uiThread = sess.thread_id;
+      }
+      if (job._uiThread && activeThreadId && job._uiThread !== activeThreadId) return;
+      if (!job._uiThread) return;
+      if (jobIsActive(job) || jobIsClosed(job)) UI().upsertJobCard(job, fmt);
     });
   }
 
   function applyJob(job, showCard) {
     if (!job || !job.job_id) return;
-    trackedJobs[job.job_id] = job;
+    var prev = trackedJobs[job.job_id];
+    if (prev && prev._uiThread && !job._uiThread) job._uiThread = prev._uiThread;
+    if (showCard && activeThreadId && !job._uiThread) job._uiThread = activeThreadId;
+    trackedJobs[job.job_id] = Object.assign({}, prev || {}, job);
     renderTrackedJobList();
-    if (showCard || jobIsActive(job)) {
-      UI().upsertJobCard(job, jobUiFmt());
+    if (showCard && job._uiThread && job._uiThread === activeThreadId) {
+      UI().upsertJobCard(trackedJobs[job.job_id], jobUiFmt());
+    } else if (showCard && !job._uiThread) {
+      UI().upsertJobCard(trackedJobs[job.job_id], jobUiFmt());
     }
   }
 
@@ -508,6 +554,11 @@
     var job = (p && p.job) || null;
     if (!job && p && p.job_id) {
       job = trackedJobs[p.job_id] || { job_id: p.job_id, status: p.status, intent: p.text };
+    }
+    if (job && activeThreadId) {
+      var prevJob = job.job_id ? trackedJobs[job.job_id] : null;
+      if (prevJob && prevJob._uiThread) job._uiThread = prevJob._uiThread;
+      else if (!job._uiThread) job._uiThread = activeThreadId;
     }
     applyJob(job, true);
   }
@@ -951,7 +1002,7 @@
       restoreHitlDock();
       restoreJobCards();
     }
-    if (p.status === 'session_switched' && p.text) {
+    if (p.status === 'session_switched' && p.text && !/^已切换到/.test(String(p.text).trim())) {
       UI().appendSystem(p.text);
     }
     finishSessionSwitch();
@@ -959,11 +1010,14 @@
   }
 
   function visibleSessions() {
-    if (DEBUG_UI) return sessions;
-    return sessions.filter(function (s) {
-      var aid = s.agent_id || DEFAULT_AGENT_ID;
-      return aid === DEFAULT_AGENT_ID;
-    });
+    var list = sessions;
+    if (!DEBUG_UI) {
+      list = sessions.filter(function (s) {
+        var aid = s.agent_id || DEFAULT_AGENT_ID;
+        return aid === DEFAULT_AGENT_ID;
+      });
+    }
+    return list.slice(0, SESSION_LIST_LIMIT);
   }
 
   function renderSessionList(force) {
@@ -977,7 +1031,7 @@
       return;
     }
     lastSessionListSig = sig;
-    UI().renderSessionList(vis, activeThreadId, switchSession, agentLabel, formatRelativeTime);
+    UI().renderSessionList(vis, activeThreadId, switchSession, null, formatRelativeTime);
     var cur = vis.find(function (s) { return s.thread_id === activeThreadId; });
     UI().setHeaderTitle(cur && cur.title ? cur.title : '灵机');
   }
@@ -1008,7 +1062,7 @@
         finishSessionSwitch();
         UI().appendSystem('加载会话超时，请重试');
       }
-    }, 15000);
+    }, 8000);
   }
 
   function switchSessionLocal(threadId, message) {
@@ -1122,7 +1176,6 @@
         }
       });
     }
-    UI().appendSystem('正在同步会话列表…');
   }
 
   function startNewSession() {
@@ -1264,8 +1317,10 @@
         UI().appendMessage('agent', '📦 ' + p.text);
         appendToHistoryCache(activeThreadId, 'agent', '📦 ' + p.text);
       } else if (p.text || (p.attachments && p.attachments.length) || (p.lingji_files && p.lingji_files.length)) {
-        UI().appendMessage('agent', p.text || '', p.attachments, p.lingji_files);
-        appendToHistoryCache(activeThreadId, 'agent', p.text || '', p.attachments, p.lingji_files);
+        if (!/^已切换到/.test(String(p.text || '').trim())) {
+          UI().appendMessage('agent', p.text || '', p.attachments, p.lingji_files);
+          appendToHistoryCache(activeThreadId, 'agent', p.text || '', p.attachments, p.lingji_files);
+        }
       }
     } else if (msg.msg_type === 'HITL_REQ') {
       var hp = msg.payload || {};
@@ -1344,8 +1399,7 @@
         authenticated = false;
         finishSessionSwitch();
         renderAgentSelect();
-        UI().setStaffPresence('员工 · 青铜剑 离线');
-        UI().setConnectionStatus('已断开', false);
+        UI().setConnectionStatus('网页已断开', false);
       };
       ws.onerror = function () {
         UI().setConnectionStatus('连接失败', false);
@@ -1358,7 +1412,10 @@
   async function send() {
     var text = UI().getInputText();
     if (!text && !pendingUploads.length) return;
-    if (switchingSession) return;
+    if (switchingSession) {
+      UI().appendSystem('会话还在加载，请等一下再发');
+      return;
+    }
     if (!isOnline()) {
       UI().appendSystem('未连接，请等待重连或刷新页面');
       return;

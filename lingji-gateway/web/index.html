@@ -7,7 +7,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <title>灵机</title>
 <meta name="theme-color" content="#111318">
-<link rel="stylesheet" href="/css/app.css?v=0.1.15">
+<link rel="stylesheet" href="/css/app.css?v=0.1.16">
 </head>
 <body>
 <div id="sidebarOverlay" class="sidebar-overlay" onclick="LingjiUI.closeSidebar()"></div>
@@ -15,9 +15,9 @@
   <aside id="sidebar" class="sidebar">
     <div class="sidebar-brand">灵机</div>
     <button type="button" id="btnNewChat" class="sidebar-new">+ 新交办</button>
-    <div class="job-list-label">工单</div>
-    <div id="jobList" class="job-list"></div>
-    <div class="job-list-label">交办记录</div>
+    <div class="job-list-label" id="liveJobsLabel" hidden>进行中</div>
+    <div id="jobList" class="job-list" hidden></div>
+    <div class="job-list-label">交办</div>
     <div id="sessionList"></div>
   </aside>
   <div class="main-panel">
@@ -66,8 +66,8 @@
   </div>
 </div>
 
-<script src="/js/ui.js?v=0.1.15"></script>
-<script src="/js/lingji-api.js?v=0.1.15"></script>
+<script src="/js/ui.js?v=0.1.16"></script>
+<script src="/js/lingji-api.js?v=0.1.16"></script>
 <script>
 (function () {
   var STORAGE_KEY = 'lingji_theme';

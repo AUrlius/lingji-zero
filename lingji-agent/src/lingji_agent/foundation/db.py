@@ -227,6 +227,26 @@ def list_chat_sessions(conn, device_id: str, limit: int = 50) -> list[dict]:
     ]
 
 
+def get_chat_session(conn, thread_id: str) -> dict | None:
+    if not thread_id:
+        return None
+    row = conn.execute(
+        """
+        SELECT thread_id, title, updated_at, is_active
+        FROM chat_sessions WHERE thread_id = ?
+        """,
+        (thread_id,),
+    ).fetchone()
+    if not row:
+        return None
+    return {
+        "thread_id": row[0],
+        "title": row[1],
+        "updated_at": row[2],
+        "active": bool(row[3]),
+    }
+
+
 def get_active_chat_thread(conn, device_id: str) -> str | None:
     row = conn.execute(
         """

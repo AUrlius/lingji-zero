@@ -52,6 +52,11 @@ class TestUploadHelpers:
         assert should_upload_fastpath("")
         assert should_upload_fastpath("   ")
 
+    def test_empty_upload_in_fleet_thread_skips_fastpath(self):
+        title = "把这个文件发到上海青铜剑。[用户上传文件] - outline.pdf"
+        assert not should_upload_fastpath("", session_title=title)
+        assert should_upload_fastpath("", session_title="随便看看")
+
     def test_should_upload_fastpath_local_save_only(self):
         assert should_upload_fastpath("保存到电脑")
         assert should_upload_fastpath("落盘")

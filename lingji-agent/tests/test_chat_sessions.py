@@ -5,6 +5,7 @@ from lingji_agent.foundation.db import (
     list_chat_sessions,
     upsert_chat_session,
     get_active_chat_thread,
+    get_chat_session,
 )
 
 
@@ -14,6 +15,11 @@ def test_chat_sessions_crud(tmp_path):
 
     upsert_chat_session(conn, "phone-1", "phone-1:aaa", "第一条", set_active=True)
     upsert_chat_session(conn, "phone-1", "phone-1:bbb", "第二条", set_active=True)
+
+    row = get_chat_session(conn, "phone-1:aaa")
+    assert row is not None
+    assert row["title"] == "第一条"
+    assert get_chat_session(conn, "missing") is None
 
     active = get_active_chat_thread(conn, "phone-1")
     assert active == "phone-1:bbb"

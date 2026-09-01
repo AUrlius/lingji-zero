@@ -42,6 +42,8 @@ def extract_ui_history(
                 out.append({"role": "user", "text": text})
         elif role == "assistant":
             text = _message_text(msg)
+            if text.startswith("已切换到"):
+                continue
             if text:
                 out.append({"role": "agent", "text": text})
     if len(out) > limit:

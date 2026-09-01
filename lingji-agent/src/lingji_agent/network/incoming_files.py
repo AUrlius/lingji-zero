@@ -74,10 +74,17 @@ def upload_has_action_intent(text: str) -> bool:
     return False
 
 
-def should_upload_fastpath(text: str) -> bool:
-    """仅纯上传（无文字）或显式「只要本机保存」时走 fast-path，其余交 Agent。"""
-    plain = text.strip()
+def should_upload_fastpath(text: str, *, session_title: str = "") -> bool:
+    """仅纯上传（无文字）或显式「只要本机保存」时走 fast-path，其余交 Agent。
+
+    空文字但当前交办标题已是「发给青铜剑」类意图时不走 fast-path，
+    避免在传文件线程里再传一份被误存秘书本机。
+    """
+    plain = (text or "").strip()
     if not plain:
+        title = (session_title or "").strip()
+        if title and upload_has_action_intent(title):
+            return False
         return True
     if _LOCAL_SAVE_ONLY_HINT.search(plain) and not upload_has_action_intent(plain):
         return True

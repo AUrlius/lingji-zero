@@ -51,6 +51,7 @@ from lingji_agent.foundation.db import (
     get_pending_hitl_session_by_task_id,
     get_pending_hitl_sessions_with_checkpoints,
     get_active_chat_thread,
+    get_chat_session,
     list_chat_sessions,
     upsert_chat_session,
     set_active_chat_session,
@@ -216,6 +217,15 @@ async def main(config_path: str | None = None):
         pending_runs: dict[str, PendingRun] = {}
         hitl_watchdogs: dict[str, asyncio.Task] = {}
         hitl_resume_lock = asyncio.Lock()
+        thread_run_locks: dict[str, asyncio.Lock] = {}
+
+        def _lock_for_thread(tid: str) -> asyncio.Lock:
+            lock = thread_run_locks.get(tid)
+            if lock is None:
+                lock = asyncio.Lock()
+                thread_run_locks[tid] = lock
+            return lock
+
         device_active_threads: dict[str, str] = {}
 
         async def _register_uploads_as_lingji_files(
@@ -331,8 +341,6 @@ async def main(config_path: str | None = None):
                 {**s, "agent_id": config.network.device_id}
                 for s in list_chat_sessions(db, user_id)
             ]
-            sw = next((s for s in sessions if s["thread_id"] == thread_id), None)
-            switch_title = sw["title"] if sw else "会话"
             history = await _thread_ui_history(thread_id)
             pending_hitl = find_pending_hitl_for_thread(db, thread_id, pending_runs)
             extra: dict = {
@@ -345,7 +353,7 @@ async def main(config_path: str | None = None):
                 pending_hitl = {**pending_hitl, "agent_id": config.network.device_id}
                 extra["pending_hitl"] = pending_hitl
             await _send_agent_reply(
-                message or f"已切换到：{switch_title}",
+                message,
                 target_device_id=connection_id,
                 target_user_id=user_id,
                 **extra,
@@ -763,6 +771,15 @@ async def main(config_path: str | None = None):
                 run_metrics.increment("cmd_total")
                 logger.info("📱 [%s] %s", device_id, user_text[:120] if user_text else "(upload/switch)")
 
+                session_title = ""
+                lookup_tid = (switch_thread_id or "").strip() or device_active_threads.get(
+                    device_id, ""
+                )
+                if lookup_tid:
+                    row = get_chat_session(db, lookup_tid)
+                    if row:
+                        session_title = row.get("title") or ""
+
                 is_session_switch = (
                     bool(switch_thread_id)
                     and not user_text.strip()
@@ -801,7 +818,7 @@ async def main(config_path: str | None = None):
                         return
 
                     plain_text = user_text.strip()
-                    if should_upload_fastpath(plain_text):
+                    if should_upload_fastpath(plain_text, session_title=session_title):
                         run_metrics.increment("upload_fastpath_total")
                         thread_id, _continue = _resolve_thread_id(
                             device_id, new_session, switch_thread_id,
@@ -924,19 +941,20 @@ async def main(config_path: str | None = None):
 
                 attachments: list[dict] | None = None
                 try:
-                    result = await run_agent(
-                        graph=graph,
-                        user_message=user_text,
-                        system_prompt=system_prompt,
-                        connector=connector,
-                        registry=registry,
-                        thread_id=thread_id,
-                        user_id=user_id,
-                        hitl_manager=hitl_mgr,
-                        sanitizer_force_docker=config.security.sanitizer_force_docker,
-                        continue_thread=continue_thread,
-                        activity_reporter=activity,
-                    )
+                    async with _lock_for_thread(thread_id):
+                        result = await run_agent(
+                            graph=graph,
+                            user_message=user_text,
+                            system_prompt=system_prompt,
+                            connector=connector,
+                            registry=registry,
+                            thread_id=thread_id,
+                            user_id=user_id,
+                            hitl_manager=hitl_mgr,
+                            sanitizer_force_docker=config.security.sanitizer_force_docker,
+                            continue_thread=continue_thread,
+                            activity_reporter=activity,
+                        )
                     if has_interrupt(result):
                         await _send_hitl_requests(result, pending)
                         logger.info("Agent 挂起等待 HITL 审批 (thread=%s)", thread_id)
