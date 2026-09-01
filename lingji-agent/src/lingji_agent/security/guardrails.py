@@ -156,9 +156,9 @@ class SecurityGuardrail:
         combined = f"{user_input}\n{context}".strip()
         ops_transfer = _is_ops_file_transfer(user_input)
 
-        # 运维传文件：inj.* 仅查用户输入（semantic 记忆常含历史注入样例）
-        inj_target = user_input if ops_transfer else combined
-        hit = _inspect_text(self._inj_rules, inj_target)
+        # inj.* 只查用户输入。semantic 记忆 / 红队文档常含「ignore previous」样例，
+        # 拼进 context 会误拦「请执行 uname -a」这类 HITL 题。
+        hit = _inspect_text(self._inj_rules, user_input)
         if hit:
             return hit
 
