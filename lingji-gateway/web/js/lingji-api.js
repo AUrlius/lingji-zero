@@ -1186,6 +1186,8 @@
     UI().clearChat();
     restoreJobCards();
     UI().appendSystem('已开始新对话');
+    UI().setHeaderTitle('新交办');
+    UI().updateSessionActiveClass(sessions, null);
     UI().closeSidebar();
     UI().focusInput();
     try {

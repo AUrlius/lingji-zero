@@ -772,13 +772,15 @@ async def main(config_path: str | None = None):
                 logger.info("📱 [%s] %s", device_id, user_text[:120] if user_text else "(upload/switch)")
 
                 session_title = ""
-                lookup_tid = (switch_thread_id or "").strip() or device_active_threads.get(
-                    device_id, ""
-                )
-                if lookup_tid:
-                    row = get_chat_session(db, lookup_tid)
-                    if row:
-                        session_title = row.get("title") or ""
+                # 新交办不得沿用上一线程标题，否则空传会被当成「发给青铜剑」续传。
+                if not new_session:
+                    lookup_tid = (switch_thread_id or "").strip() or device_active_threads.get(
+                        device_id, ""
+                    )
+                    if lookup_tid:
+                        row = get_chat_session(db, lookup_tid)
+                        if row:
+                            session_title = row.get("title") or ""
 
                 is_session_switch = (
                     bool(switch_thread_id)
