@@ -723,9 +723,31 @@
       note.textContent = t;
     },
 
-    setHermesChannel: function (text) {
+    setHermesChannel: function (text, ready) {
       var ch = el('hermesChannel');
-      if (ch) ch.textContent = text || '通道未接通';
+      if (!ch) return;
+      ch.textContent = text || '通道未接通';
+      ch.classList.toggle('is-ready', !!ready);
+    },
+
+    setHermesComposer: function (enabled, placeholder) {
+      var input = el('hermesInput');
+      var send = el('btnHermesSend');
+      if (input) {
+        input.disabled = !enabled;
+        input.placeholder = placeholder || (enabled ? '给本机机要发一句…' : '通道未接通');
+      }
+      if (send) send.disabled = !enabled;
+    },
+
+    appendHermesChat: function (role, text) {
+      var log = el('hermesChat');
+      if (!log) return;
+      var row = document.createElement('div');
+      row.className = 'hermes-msg hermes-msg-' + (role === 'user' ? 'user' : 'agent');
+      row.textContent = text || '';
+      log.appendChild(row);
+      log.scrollTop = log.scrollHeight;
     },
   };
 })();

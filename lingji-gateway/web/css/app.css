@@ -409,6 +409,8 @@ html.debug-ui .agent-select.debug-only { display: inline-block; }
   min-height: 0;
   overflow-y: auto;
   padding: 16px 14px;
+  display: flex;
+  flex-direction: column;
 }
 
 .hermes-copy {
@@ -424,6 +426,8 @@ html.debug-ui .agent-select.debug-only { display: inline-block; }
   color: var(--hitl-warn);
   margin-bottom: 10px;
 }
+
+.hermes-channel.is-ready { color: var(--text-status-ok); }
 
 .hermes-note {
   font-size: 12px;
@@ -447,14 +451,53 @@ html.debug-ui .agent-select.debug-only { display: inline-block; }
   background: var(--hitl-reject);
 }
 
+.hermes-chat {
+  flex: 1;
+  min-height: 72px;
+  overflow-y: auto;
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.hermes-msg {
+  font-size: 13px;
+  line-height: 1.45;
+  padding: 8px 10px;
+  border-radius: 10px;
+  max-width: 95%;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.hermes-msg-user {
+  align-self: flex-end;
+  background: var(--accent);
+  color: var(--text-on-accent);
+}
+
+.hermes-msg-agent {
+  align-self: flex-start;
+  background: var(--bg-session-active);
+  color: var(--text-primary);
+}
+
 .hermes-composer {
   flex-shrink: 0;
   padding: 10px 12px calc(12px + env(safe-area-inset-bottom, 0px));
   border-top: 1px solid var(--border);
 }
 
+.hermes-composer-row {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+}
+
 .hermes-composer textarea {
-  width: 100%;
+  flex: 1;
+  min-width: 0;
   resize: none;
   background: var(--bg-composer);
   border: 1px solid var(--border-strong);
@@ -463,6 +506,27 @@ html.debug-ui .agent-select.debug-only { display: inline-block; }
   padding: 10px 12px;
   font: inherit;
   font-size: 16px;
+}
+
+.hermes-composer textarea:not(:disabled) {
+  color: var(--text-primary);
+}
+
+.hermes-send-btn {
+  flex-shrink: 0;
+  min-height: 44px;
+  padding: 0 12px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: var(--accent);
+  color: var(--text-on-accent);
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.hermes-send-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
 }
 
 .menu-btn,

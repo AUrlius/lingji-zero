@@ -1018,20 +1018,40 @@ async def main(config_path: str | None = None):
             from lingji_agent.execution.hermes_session import handle_hermes_session
 
             conn_id, user_id = _resolve_web_client(msg)
-            action = str((msg.payload or {}).get("action") or "health")
-            result = handle_hermes_session(action)
+            payload = msg.payload or {}
+            action = str(payload.get("action") or "health")
+            text = str(payload.get("text") or "")
+            try:
+                result = await asyncio.to_thread(
+                    handle_hermes_session,
+                    action,
+                    cfg=config.hermes_session,
+                    text=text,
+                )
+            except Exception as exc:
+                logger.exception("hermes_session failed action=%s", action)
+                result = {
+                    "action": action,
+                    "unimplemented": False,
+                    "ok": False,
+                    "hermes_status": "off",
+                    "channel_ready": False,
+                    "reason": f"控制面异常：{exc}",
+                }
+            status = "hermes_chat" if result.get("action") == "chat" else "hermes_session"
             logger.info(
-                "hermes_session action=%s unimplemented=%s hermes_status=%s",
+                "hermes_session action=%s status=%s hermes_status=%s channel_ready=%s",
                 result.get("action"),
-                result.get("unimplemented"),
+                status,
                 result.get("hermes_status"),
+                result.get("channel_ready"),
             )
             await _send_agent_reply(
                 "",
                 target_device_id=conn_id,
                 target_user_id=user_id,
                 **result,
-                status="hermes_session",
+                status=status,
             )
 
         router.register(MsgType.CMD_HERMES_SESSION, on_hermes_session)

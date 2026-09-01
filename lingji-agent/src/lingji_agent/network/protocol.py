@@ -5,6 +5,7 @@ HITL_REQ, HITL_RES, AGENT_RES, Fleet / Job 类型。
 AGENT_RES.payload 可含 attachments[]（G6 远程文件下载）
 AGENT_RES.payload.status=activity 时为运行阶段指示（非聊天）：phase=received|thinking|tool|waiting_hitl|idle
 AGENT_RES.payload.status=hermes_session 时机要控制面回执（非聊天）
+AGENT_RES.payload.status=hermes_chat 时机要右栏对话（禁止进秘书气泡 / inbox）
 """
 
 import json

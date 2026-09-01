@@ -1,6 +1,6 @@
 # Fleet 4.0 — Job Workflow (Engineering Summary)
 
-> **Status**: **4.0a implemented** (2026-07-08) · **4.0d-2 秘书台 MVP** (2026-08-31) · **4.0d-3 调度代批 HITL coded** (2026-09-01) · **Web v0.1.18 机要栏空态** (2026-09-02)；Hermes 入站 / `job_invoke_hermes` / 4.0d-4 **未做**  
+> **Status**: **4.0a implemented** (2026-07-08) · **4.0d-2 秘书台 MVP** (2026-08-31) · **4.0d-3 调度代批 HITL coded** (2026-09-01) · **4.0d-4a/4b 空城记机要接线** (2026-09-02)；上海 Permission Proxy / `job_invoke_hermes` **未做**  
 > **Full spec**: [Sprint Fleet 4.0 — Job 工作流、调度层与分级验收](../../../../docs/sprints/第六阶段：编码实现与测试/Sprint Fleet 4.0 — Job 工作流、调度层与分级验收.md)  
 > **4.0d spec**: [fleet-4.0d-remote-guardian-design.md](./fleet-4.0d-remote-guardian-design.md)  
 > **Runbook**: [fleet-4.0d-remote-guardian-runbook.md](./fleet-4.0d-remote-guardian-runbook.md)  
@@ -82,7 +82,8 @@ LJ-A1B2C3D4 失败：接收机未确认（…）。详情 GET /v1/jobs/LJ-A1B2C3
 | **4.0d-1** | Web default `lingji-laptop` + `scheduler` config + Job `scheduler_agent_id` | ✅ coded |
 | **4.0d-2** | `approval_scope` + 档 A playbooks + `JOB_DELEGATE` + Web 办公桌 | ✅ coded |
 | **4.0d-3** | Delegated HITL（范围内空城记代批，敏感升级用户 dock） | ✅ coded |
-| **4.0d-4** | Hermes Permission Proxy | 未做 |
+| **4.0d-4a/4b** | 空城记机要接线（本机启停 + 右栏 loopback chat） | ✅ coded |
+| **4.0d-4（原设计）** | 上海 Hermes Permission Proxy | 未做 |
 
 ## Existing code anchors
 

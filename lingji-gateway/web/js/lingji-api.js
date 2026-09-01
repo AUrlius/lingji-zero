@@ -127,7 +127,7 @@
   var CACHE_HERMES_WANTED = 'lingji_hermes_wanted_on_v1';
   var HERMES_IDLE_MS = 15 * 60 * 1000;
   var HERMES_WARN_MS = 60 * 1000;
-  var HERMES_START_TIMEOUT_MS = 10000;
+  var HERMES_START_TIMEOUT_MS = 25000;
   var HERMES_LABELS = {
     off: '机要 · 未启动',
     starting: '机要 · 启动中',
@@ -143,6 +143,8 @@
   var hermesWarnTimer = null;
   var hermesStartTimer = null;
   var hermesBusy = false;
+  var hermesChannelReady = false;
+  var hermesHibernatePending = false;
 
   function el(id) {
     return document.getElementById(id);
@@ -174,11 +176,8 @@
     hermesIdleTimer = setTimeout(function () {
       setHermesRuntime('idle-soon');
       hermesWarnTimer = setTimeout(function () {
+        hermesHibernatePending = true;
         sendHermesSession('stop');
-        hermesLiveFromStart = false;
-        saveHermesWanted(false);
-        setHermesRuntime('hibernated');
-        UI().setHermesNote('已闲置休眠。需要时再启动机要。');
       }, HERMES_WARN_MS);
     }, HERMES_IDLE_MS);
   }
@@ -193,9 +192,16 @@
     else if (hermesRuntime === 'hibernated') powerLabel = '重新启动';
     UI().setHermesPower(powerOn && hermesRuntime !== 'starting', powerLabel);
     if (hermesRuntime === 'starting') UI().setHermesPower(false, powerLabel);
+    syncHermesComposer();
   }
 
-  function sendHermesSession(action) {
+  function syncHermesComposer() {
+    var live = hermesRuntime === 'online' || hermesRuntime === 'idle-soon';
+    var on = live && hermesChannelReady;
+    UI().setHermesComposer(on, on ? '给本机机要发一句…' : '通道未接通');
+  }
+
+  function sendHermesSession(action, text) {
     if (!ws || ws.readyState !== WebSocket.OPEN) {
       UI().setHermesNote('网页未连接，无法联系机要控制面。');
       return;
@@ -207,6 +213,7 @@
       timestamp: Date.now() / 1000,
       payload: {
         action: action,
+        text: text || '',
         user_id: USER_ID,
         target_agent_id: DEFAULT_AGENT_ID,
       },
@@ -222,25 +229,48 @@
     var unimplemented = !!p.unimplemented;
     var status = p.hermes_status || 'off';
     var reason = p.reason || '';
-    UI().setHermesChannel('通道未接通');
+    hermesChannelReady = !!p.channel_ready;
+    UI().setHermesChannel(hermesChannelReady ? '通道已接通' : '通道未接通', hermesChannelReady);
+
+    if (unimplemented) {
+      hermesHibernatePending = false;
+      hermesLiveFromStart = false;
+      hermesChannelReady = false;
+      saveHermesWanted(false);
+      setHermesRuntime('off');
+      UI().setHermesChannel('通道未接通', false);
+      UI().setHermesNote(reason || '启动未接线，避免假在线。');
+      return;
+    }
+
+    if (action === 'stop' && hermesHibernatePending) {
+      hermesHibernatePending = false;
+      if (status === 'online') {
+        UI().setHermesNote(reason || '休眠失败，进程仍在。');
+        hermesLiveFromStart = true;
+        setHermesRuntime('online');
+        markHermesActivity();
+        return;
+      }
+      hermesLiveFromStart = false;
+      saveHermesWanted(false);
+      setHermesRuntime('hibernated');
+      UI().setHermesNote(reason || '已闲置休眠。需要时再启动机要。');
+      return;
+    }
 
     if (action === 'health') {
       if (status === 'online') {
+        hermesLiveFromStart = true;
+        saveHermesWanted(true);
         setHermesRuntime('online');
-        UI().setHermesNote(reason || '进程在跑，入站通道未接通。');
+        markHermesActivity();
+        UI().setHermesNote(reason || (hermesChannelReady ? '' : '进程在跑，通道未接通。'));
       } else {
         hermesLiveFromStart = false;
         setHermesRuntime(hermesRuntime === 'hibernated' ? 'hibernated' : 'off');
         UI().setHermesNote(reason);
       }
-      return;
-    }
-
-    if (unimplemented) {
-      hermesLiveFromStart = false;
-      saveHermesWanted(false);
-      setHermesRuntime('off');
-      UI().setHermesNote(reason || '启动未接线，避免假在线。');
       return;
     }
 
@@ -252,9 +282,49 @@
     } else {
       hermesLiveFromStart = false;
       saveHermesWanted(false);
-      setHermesRuntime(action === 'stop' ? 'off' : 'off');
+      setHermesRuntime('off');
     }
     if (reason) UI().setHermesNote(reason);
+  }
+
+  function applyHermesChat(p) {
+    if (p.channel_ready !== undefined) {
+      hermesChannelReady = !!p.channel_ready;
+      UI().setHermesChannel(hermesChannelReady ? '通道已接通' : '通道未接通', hermesChannelReady);
+    }
+    if (p.hermes_status === 'online') {
+      if (hermesRuntime !== 'online' && hermesRuntime !== 'idle-soon') {
+        setHermesRuntime('online');
+      }
+      hermesLiveFromStart = true;
+      markHermesActivity();
+    } else if (p.hermes_status === 'off') {
+      hermesLiveFromStart = false;
+      setHermesRuntime('off');
+    }
+    var reply = (p.text || '').trim();
+    if (reply) UI().appendHermesChat('agent', reply);
+    if (p.ok === false && p.reason) UI().setHermesNote(p.reason);
+    syncHermesComposer();
+  }
+
+  function sendHermesChat(text) {
+    sendHermesSession('chat', text);
+  }
+
+  function onHermesChatSend() {
+    var input = el('hermesInput');
+    if (!input || input.disabled) return;
+    var text = (input.value || '').trim();
+    if (!text) return;
+    if (!hermesChannelReady) {
+      UI().setHermesNote('通道未接通，不能在此对话。');
+      return;
+    }
+    UI().appendHermesChat('user', text);
+    input.value = '';
+    markHermesActivity();
+    sendHermesChat(text);
   }
 
   function markHermesActivity() {
@@ -298,8 +368,11 @@
     try { paneOpen = localStorage.getItem('lingji_hermes_pane_open_v1') === '1'; } catch (e) {}
     UI().setHermesPaneOpen(paneOpen);
     setHermesRuntime('off');
-    UI().setHermesChannel('通道未接通');
+    UI().setHermesChannel('通道未接通', false);
     UI().setHermesNote('');
+    hermesChannelReady = false;
+    hermesHibernatePending = false;
+    syncHermesComposer();
 
     function togglePane() {
       var open = el('app') && el('app').classList.contains('hermes-open');
@@ -315,6 +388,17 @@
     if (chip) chip.addEventListener('click', function () { UI().setHermesPaneOpen(true); });
     if (overlay) overlay.addEventListener('click', function () { UI().setHermesPaneOpen(false); });
     if (btnPower) btnPower.addEventListener('click', onHermesPowerClick);
+    var hermesInput = el('hermesInput');
+    var btnHermesSend = el('btnHermesSend');
+    if (btnHermesSend) btnHermesSend.addEventListener('click', onHermesChatSend);
+    if (hermesInput) {
+      hermesInput.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter' && !e.shiftKey) {
+          e.preventDefault();
+          onHermesChatSend();
+        }
+      });
+    }
     window.addEventListener('resize', function () {
       var open = el('app') && el('app').classList.contains('hermes-open');
       if (open) UI().setHermesPaneOpen(true);
@@ -1491,6 +1575,10 @@
         applyHermesSession(p);
         return;
       }
+      if (p.status === 'hermes_chat') {
+        applyHermesChat(p);
+        return;
+      }
       if (p.status === 'activity') {
         applyAgentActivity(p);
         return;
@@ -1593,7 +1681,10 @@
         clearHermesIdleTimers();
         if (hermesStartTimer) { clearTimeout(hermesStartTimer); hermesStartTimer = null; }
         hermesLiveFromStart = false;
+        hermesHibernatePending = false;
+        hermesChannelReady = false;
         if (hermesRuntime === 'starting') setHermesRuntime('off');
+        UI().setHermesComposer(false, '通道未接通');
         UI().setAgentActivity(null);
         authenticated = false;
         finishSessionSwitch();

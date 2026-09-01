@@ -75,6 +75,18 @@ class SchedulerConfig(BaseModel):
     guardian_executor_ids: list[str] = []
 
 
+class HermesSessionConfig(BaseModel):
+    """空城记本机机要启停（argv 列表，禁止拼用户字符串当 shell）。"""
+
+    start_cmd: list[str] = []
+    stop_cmd: list[str] = []
+    process_names: list[str] = ["hermes", "openclaw"]
+    health_url: str = ""
+    chat_url: str = ""
+    chat_timeout_sec: float = 60.0
+    start_wait_sec: float = 3.0
+
+
 class AgentConfig(BaseModel):
     network: NetworkConfig = NetworkConfig()
     llm: LLMConfig = LLMConfig()
@@ -82,6 +94,7 @@ class AgentConfig(BaseModel):
     memory: MemoryConfig = MemoryConfig()
     observability: ObservabilityConfig = ObservabilityConfig()
     scheduler: SchedulerConfig = SchedulerConfig()
+    hermes_session: HermesSessionConfig = HermesSessionConfig()
 
 
 # ── 环境变量映射 ──────────────────────────────────────────

@@ -57,3 +57,14 @@ scheduler:
   enabled: false
   scheduler_agent_id: lingji-laptop
   guardian_executor_ids: []
+# 机要栏（仅空城记填写；argv 列表禁止写成一条 shell 字符串；密钥勿提交）
+hermes_session:
+  start_cmd: []          # 例: ["/usr/local/bin/hermes", "gateway"]
+  stop_cmd: []           # 例: ["pkill", "-x", "hermes"]；空则按 process_names pkill -x 第一个
+  process_names:
+    - hermes
+    - openclaw
+  health_url: ""         # 可选，仅 127.0.0.1 / localhost
+  chat_url: ""           # 有本机 HTTP 会话接口才填；空则在线但通道未接通
+  chat_timeout_sec: 60
+  start_wait_sec: 3

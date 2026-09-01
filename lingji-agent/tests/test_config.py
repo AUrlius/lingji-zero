@@ -13,6 +13,7 @@ from lingji_agent.foundation.config import (
     LLMConfig,
     SecurityConfig,
     SchedulerConfig,
+    HermesSessionConfig,
     load_config,
 )
 
@@ -40,6 +41,12 @@ class TestConfigDefaults:
         assert cfg.scheduler.enabled is False
         assert cfg.scheduler.scheduler_agent_id == ""
         assert cfg.scheduler.guardian_executor_ids == []
+
+    def test_default_hermes_session(self):
+        cfg = AgentConfig()
+        assert cfg.hermes_session.start_cmd == []
+        assert cfg.hermes_session.chat_url == ""
+        assert cfg.hermes_session.process_names == ["hermes", "openclaw"]
 
 
 class TestYamlLoading:
@@ -93,6 +100,27 @@ class TestYamlLoading:
             assert cfg.scheduler.enabled is True
             assert cfg.scheduler.scheduler_agent_id == "lingji-laptop"
             assert cfg.scheduler.guardian_executor_ids == ["lingji-pc"]
+        finally:
+            os.unlink(path)
+
+    def test_hermes_session_yaml(self):
+        yaml_data = {
+            "hermes_session": {
+                "start_cmd": ["hermes", "gateway"],
+                "stop_cmd": ["pkill", "-x", "hermes"],
+                "process_names": ["hermes"],
+                "health_url": "http://127.0.0.1:18789/health",
+                "chat_url": "http://127.0.0.1:18789/v1/chat",
+            }
+        }
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+            yaml.dump(yaml_data, f)
+            path = f.name
+        try:
+            cfg = load_config(path)
+            assert cfg.hermes_session.start_cmd == ["hermes", "gateway"]
+            assert cfg.hermes_session.chat_url == "http://127.0.0.1:18789/v1/chat"
+            assert isinstance(cfg.hermes_session, HermesSessionConfig)
         finally:
             os.unlink(path)
 

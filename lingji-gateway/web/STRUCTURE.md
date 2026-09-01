@@ -23,7 +23,9 @@ web/
 | `hermesPane` | 右侧机要栏（默认收起） |
 | `hermesPresence` | 顶栏机要状态 |
 | `btnHermesPane` | 展开/收起机要栏（不等于启停） |
-| `btnHermesPower` | 启停机要（`CMD_HERMES_SESSION` stub） |
+| `btnHermesPower` | 启停机要（`CMD_HERMES_SESSION` start/stop） |
+| `hermesChat` | 机要右栏对话（不进秘书气泡） |
+| `hermesInput` / `btnHermesSend` | 机要输入；仅 `channel_ready` 时可用 |
 | `btnNewChat` | 新对话按钮 |
 | `sessionList` | 会话列表 |
 | `status` | 连接状态 |

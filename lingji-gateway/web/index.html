@@ -7,7 +7,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <title>灵机</title>
 <meta name="theme-color" content="#111318">
-<link rel="stylesheet" href="/css/app.css?v=0.1.18">
+<link rel="stylesheet" href="/css/app.css?v=0.1.19">
 </head>
 <body>
 <div id="sidebarOverlay" class="sidebar-overlay" onclick="LingjiUI.closeSidebar()"></div>
@@ -78,15 +78,19 @@
       <p class="hermes-channel" id="hermesChannel">通道未接通</p>
       <p class="hermes-note" id="hermesNote" hidden></p>
       <button type="button" id="btnHermesPower" class="hermes-power-btn">启动机要</button>
+      <div id="hermesChat" class="hermes-chat" aria-live="polite"></div>
     </div>
     <div class="hermes-composer">
-      <textarea id="hermesInput" rows="2" placeholder="通道未接通" disabled></textarea>
+      <div class="hermes-composer-row">
+        <textarea id="hermesInput" rows="2" placeholder="通道未接通" disabled></textarea>
+        <button type="button" id="btnHermesSend" class="hermes-send-btn" disabled>发送</button>
+      </div>
     </div>
   </aside>
 </div>
 
-<script src="/js/ui.js?v=0.1.18"></script>
-<script src="/js/lingji-api.js?v=0.1.18"></script>
+<script src="/js/ui.js?v=0.1.19"></script>
+<script src="/js/lingji-api.js?v=0.1.19"></script>
 <script>
 (function () {
   var STORAGE_KEY = 'lingji_theme';

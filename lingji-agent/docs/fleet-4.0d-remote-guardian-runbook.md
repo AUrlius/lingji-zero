@@ -53,7 +53,20 @@ git pull origin main
 
 Web 使用 `https://lingji.mygoal.tech`；目标态默认连 **空城记（调度）**，非青铜剑。
 
-**机要栏（Web v0.1.18）：** 右侧默收起；收起≠关机。启停发 `CMD_HERMES_SESSION`（不进秘书 LLM）。本切片不拉起 Hermes，右栏写「通道未接通」。空城记需 `git pull` + 重启后控制面才有回执。
+**机要栏（Web v0.1.19）：** 右侧默收起；收起≠关机。启停发 `CMD_HERMES_SESSION`（不进秘书 LLM）。空城记配置 `hermes_session.start_cmd` 后可真拉起本机 Hermes；闲置 15+1 分钟会 `stop`。右栏对话仅当本机 `chat_url`（127.0.0.1）可调用时接通，否则「通道未接通」、不装假回复。破窗仍用飞书/Telegram 原生 Hermes。
+
+空城记本地 `config/default_config.yaml`（gitignore，勿提交）示例：
+
+```yaml
+hermes_session:
+  start_cmd: ["/usr/local/bin/hermes", "gateway"]   # 按 which hermes 改
+  stop_cmd: ["pkill", "-x", "hermes"]
+  process_names: ["hermes"]
+  health_url: ""    # 可选，仅 http://127.0.0.1/...
+  chat_url: ""      # 有 localhost 会话 API 才填；空则在线但通道未接通
+```
+
+发版后空城记：`git pull origin main && ./scripts/restart-agent-wsl.sh`
 
 ---
 

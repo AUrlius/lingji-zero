@@ -85,3 +85,35 @@ func TestCaptureWSMessageAgentSessions(t *testing.T) {
 		t.Fatalf("threads = %+v", threads)
 	}
 }
+
+func TestCaptureWSMessageSkipsHermesChat(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "inbox.db")
+	inbox, err := store.OpenInboxStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer inbox.Close()
+
+	if err := inbox.UpsertThread("user-xyz:1", "user-xyz", "lingji-laptop", "T"); err != nil {
+		t.Fatal(err)
+	}
+	raw := []byte(`{
+		"msg_type":"AGENT_RES",
+		"device_id":"lingji-laptop",
+		"payload":{
+			"status":"hermes_chat",
+			"target_user_id":"user-xyz",
+			"thread_id":"user-xyz:1",
+			"text":"secret hermes reply"
+		}
+	}`)
+	handler.CaptureWSMessage(inbox, "AGENT_RES", "lingji-laptop", raw)
+
+	msgs, err := inbox.ListMessages("user-xyz:1", "lingji-laptop", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(msgs) != 0 {
+		t.Fatalf("hermes_chat must not enter inbox, got %+v", msgs)
+	}
+}
