@@ -121,3 +121,72 @@ func TestJobsListDispatchReport(t *testing.T) {
 		t.Fatalf("status=%s", done.Status)
 	}
 }
+
+func TestPlanString(t *testing.T) {
+	tests := []struct {
+		name string
+		plan map[string]any
+		key  string
+		want string
+	}{
+		{"nil plan", nil, "brief", ""},
+		{"missing key", map[string]any{}, "brief", ""},
+		{"wrong type", map[string]any{"brief": 42}, "brief", ""},
+		{"present", map[string]any{"brief": "write hi"}, "brief", "write hi"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := store.PlanString(tc.plan, tc.key); got != tc.want {
+				t.Fatalf("PlanString(%q)=%q want %q", tc.key, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestCodingDelegateFields(t *testing.T) {
+	tests := []struct {
+		name string
+		plan map[string]any
+		want map[string]any
+	}{
+		{
+			name: "empty plan",
+			plan: nil,
+			want: map[string]any{
+				"brief": "", "runner": "", "source_git": "", "timeout_sec": float64(0),
+			},
+		},
+		{
+			name: "coding_run plan",
+			plan: map[string]any{
+				"brief":       "implement feature X",
+				"runner":      "cursor-agent",
+				"source_git":  "https://github.com/example/repo.git",
+				"timeout_sec": float64(3600),
+			},
+			want: map[string]any{
+				"brief":       "implement feature X",
+				"runner":      "cursor-agent",
+				"source_git":  "https://github.com/example/repo.git",
+				"timeout_sec": float64(3600),
+			},
+		},
+		{
+			name: "timeout_sec as int",
+			plan: map[string]any{"brief": "quick fix", "timeout_sec": 900},
+			want: map[string]any{
+				"brief": "quick fix", "runner": "", "source_git": "", "timeout_sec": float64(900),
+			},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := store.CodingDelegateFields(tc.plan)
+			for k, want := range tc.want {
+				if got[k] != want {
+					t.Fatalf("field %q: got %v (%T) want %v (%T)", k, got[k], got[k], want, want)
+				}
+			}
+		})
+	}
+}

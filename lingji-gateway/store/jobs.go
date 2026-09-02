@@ -628,6 +628,25 @@ func (s *JobStore) DispatchStep(jobID, stepID, executorID string) (*Job, error) 
 	return s.GetJob(jobID)
 }
 
+// PlanString reads a string field from a job plan map (empty when missing).
+func PlanString(plan map[string]any, key string) string {
+	if plan == nil {
+		return ""
+	}
+	v, _ := plan[key].(string)
+	return v
+}
+
+// CodingDelegateFields extracts coding_run fields from job.Plan for JOB_DELEGATE payloads.
+func CodingDelegateFields(plan map[string]any) map[string]any {
+	return map[string]any{
+		"brief":       PlanString(plan, "brief"),
+		"runner":      PlanString(plan, "runner"),
+		"source_git":  PlanString(plan, "source_git"),
+		"timeout_sec": planTimeoutSec(plan, nil),
+	}
+}
+
 func planTimeoutSec(plan map[string]any, scope map[string]any) float64 {
 	type pair struct {
 		src map[string]any

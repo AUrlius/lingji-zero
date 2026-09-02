@@ -261,7 +261,7 @@ func (h *JobsHandler) sendDelegate(job *store.Job, stepID, executorHint string) 
 	if executor == "" {
 		executor = "lingji-pc"
 	}
-	msg := protocol.NewMessage(protocol.MsgJobDelegate, "gateway", map[string]any{
+	payload := map[string]any{
 		"job_id":             job.JobID,
 		"step_id":            step.StepID,
 		"playbook_id":        job.Playbook,
@@ -270,7 +270,11 @@ func (h *JobsHandler) sendDelegate(job *store.Job, stepID, executorHint string) 
 		"scheduler_agent_id": job.SchedulerAgentID,
 		"executor_id":        executor,
 		"intent":             job.Intent,
-	})
+	}
+	for k, v := range store.CodingDelegateFields(job.Plan) {
+		payload[k] = v
+	}
+	msg := protocol.NewMessage(protocol.MsgJobDelegate, "gateway", payload)
 	raw, err := msg.ToJSON()
 	if err != nil {
 		log.Printf("[JOB] encode DELEGATE: %v", err)
