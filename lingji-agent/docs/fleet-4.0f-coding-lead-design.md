@@ -1,6 +1,6 @@
 # Fleet 4.0f — 领队编排（工程摘要）
 
-> **状态**：**实现中，未宣称已编码**（合入且全量回归绿前保持此态；2026-09-02）  
+> **状态**：**已编码并合入 main**（2026-09-02，[PR #1](https://github.com/AUrlius/lingji-zero/pull/1)）  
 > **正文**：[Sprint Fleet 4.0f — 领队编排与施工队](../../../../docs/sprints/第六阶段：编码实现与测试/Sprint Fleet 4.0f — 领队编排与施工队.md)  
 > **实现计划**：[Sprint Fleet 4.0f — 实现计划](../../../../docs/sprints/第六阶段：编码实现与测试/Sprint Fleet 4.0f — 实现计划.md)
 

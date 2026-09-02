@@ -85,7 +85,7 @@ LJ-A1B2C3D4 失败：接收机未确认（…）。详情 GET /v1/jobs/LJ-A1B2C3
 | **4.0d-4a/4b** | 空城记机要接线（本机启停 + 右栏 loopback chat） | ✅ coded |
 | **4.0d-4（原设计）** | 上海 Hermes Permission Proxy | 未做 |
 | **4.0e** | `coding_run`：独立卷 + 无头 Cursor + 监工 + `job_invoke_coding` | ✅ coded（已合入 main） |
-| **4.0f** | 领队编排（技术方案 + 批复提问）+ 串行 Cursor | 实现中；[实现计划](../../../../docs/sprints/第六阶段：编码实现与测试/Sprint%20Fleet%204.0f%20—%20实现计划.md)；未编码（合入前） |
+| **4.0f** | 领队编排（技术方案 + 批复提问）+ 串行 Cursor | ✅ coded（已合入 main，[PR #1](https://github.com/AUrlius/lingji-zero/pull/1)） |
 
 ## Existing code anchors
 
