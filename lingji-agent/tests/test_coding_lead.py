@@ -282,6 +282,32 @@ async def test_cursor_plan_lead_cwd_is_lead_not_workspace(tmp_path: Path):
     assert not (job / "workspace" / "marker.txt").exists()
 
 
+@pytest.mark.asyncio
+async def test_cursor_plan_lead_writes_supervise_run_log(tmp_path: Path):
+    """Popen must write logs/run.log (supervise watches it); not only lead/run.log."""
+    job = tmp_path / "LJ-LEADLOG1"
+    job.mkdir()
+    script = tmp_path / "lead.py"
+    script.write_text(
+        "import os, pathlib\n"
+        "print('PLAN:' + os.getcwd())\n"
+        "pathlib.Path('marker.txt').write_text('lead', encoding='utf-8')\n",
+        encoding="utf-8",
+    )
+    rt = CursorPlanLeadRuntime(
+        [sys.executable, "-u", str(script)],
+        hung_sec=5,
+        heartbeat_sec=0.05,
+        progress_sec=10,
+    )
+    decision = await rt.propose_plan(job_dir=job, brief="b", timeout_sec=5)
+    assert decision.ok is True
+    supervise_log = job / "lead" / "logs" / "run.log"
+    assert supervise_log.is_file()
+    assert "PLAN:" in supervise_log.read_text(encoding="utf-8")
+    assert (job / "lead" / "run.log").is_file()
+
+
 def test_make_lead_runtime_none_when_empty_or_force():
     assert make_lead_runtime(CodingConfig(lead_cmd=[])) is None
     assert make_lead_runtime(CodingConfig(lead_cmd=["agent", "--force"])) is None
