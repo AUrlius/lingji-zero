@@ -353,7 +353,12 @@ async def _tool_executor_impl(state: AgentState) -> AgentState:
                 if fn_name in ("fleet_send_file", "relay_file_by_id"):
                     fn_args.setdefault("thread_id", configurable.get("thread_id", ""))
                     fn_args.setdefault("user_id", configurable.get("_user_id", ""))
-                elif fn_name in ("job_invoke", "job_get", "job_create_fleet_transfer"):
+                elif fn_name in (
+                    "job_invoke",
+                    "job_invoke_coding",
+                    "job_get",
+                    "job_create_fleet_transfer",
+                ):
                     fn_args.setdefault("user_id", configurable.get("_user_id", ""))
                 with trace_span(f"tool.execute.{fn_name}", {"tool.name": fn_name}):
                     try:

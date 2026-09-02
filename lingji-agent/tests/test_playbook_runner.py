@@ -60,3 +60,13 @@ async def test_job_invoke_rejects_unknown_playbook():
     out = await job_invoke(user_id="u1", playbook_id="shell-me")
     assert "error" in out
     assert "未知 playbook" in out["error"]
+
+
+@pytest.mark.asyncio
+async def test_job_invoke_rejects_coding_cursor_playbook():
+    """coding.cursor 不在 PLAYBOOK_SCRIPTS；须走 job_invoke_coding。"""
+    out = await job_invoke(user_id="u1", playbook_id="coding.cursor")
+    assert "error" in out
+    assert "未知 playbook" in out["error"]
+    assert "coding.cursor" not in PLAYBOOK_SCRIPTS
+

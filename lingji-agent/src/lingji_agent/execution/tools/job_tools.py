@@ -180,3 +180,103 @@ async def job_invoke(
         if dispatched.get("status") in ("completed", "failed")
         else f"已派工 {dispatched.get('job_id')}（{pb} → {executor}），进度见办公桌工单卡。",
     }
+
+
+@registry.register(
+    name="job_invoke_coding",
+    description=(
+        "秘书派编码任务：创建 LJ-*（playbook=coding.cursor）并委派值守机拉起无头 Cursor。"
+        "用户要改仓库/写代码时必须用此工具，禁止 execute_command / 禁止走 job_invoke。"
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "user_id": {"type": "string"},
+            "intent": {"type": "string", "description": "工单卡标题，短；空则用 brief 前 40 字"},
+            "brief": {"type": "string", "description": "任务说明书"},
+            "executor_id": {"type": "string", "description": "默认 lingji-pc"},
+            "runner": {"type": "string", "description": "默认 cursor；本切片只支持 cursor"},
+            "source_git": {"type": "string", "description": "空或 git URL；执行机再查白名单"},
+            "timeout_sec": {
+                "type": "integer",
+                "description": "默认 1800；0 同默认；硬顶 3600",
+            },
+        },
+        "required": ["user_id", "intent", "brief"],
+    },
+    risk=RiskLevel.SAFE,
+)
+async def job_invoke_coding(
+    user_id: str = "",
+    intent: str = "",
+    brief: str = "",
+    executor_id: str = "",
+    runner: str = "cursor",
+    source_git: str = "",
+    timeout_sec: int = 0,
+) -> dict:
+    from lingji_agent.execution.approval_scope import (
+        PLAYBOOK_CODING_CURSOR,
+        default_coding_scope,
+    )
+
+    brief_text = (brief or "").strip()
+    if not brief_text:
+        return {"error": "brief 不能为空"}
+    runner_id = (runner or "cursor").strip() or "cursor"
+    if runner_id != "cursor":
+        return {"error": "runner 只支持 cursor"}
+
+    try:
+        timeout = int(timeout_sec or 0)
+    except (TypeError, ValueError):
+        return {"error": "timeout_sec 超过硬顶"}
+    if timeout == 0:
+        timeout = 1800
+    if timeout < 1 or timeout > 3600:
+        return {"error": "timeout_sec 超过硬顶"}
+
+    intent_text = (intent or "").strip() or brief_text[:40]
+    executor = (executor_id or "lingji-pc").strip() or "lingji-pc"
+    plan = {
+        "executor_id": executor,
+        "runner": runner_id,
+        "brief": brief_text,
+        "source_git": source_git or "",
+        "timeout_sec": timeout,
+    }
+    job = await create_job(
+        user_id=user_id,
+        playbook=PLAYBOOK_CODING_CURSOR,
+        intent=intent_text,
+        plan=plan,
+        approval_scope=default_coding_scope(
+            timeout_sec=timeout,
+            source_git=source_git or "",
+            runner=runner_id,
+        ),
+        scheduler_agent_id=get_scheduler_agent_id(fallback_device_id=_local_agent_id()),
+    )
+    if job.get("error"):
+        return job
+    dispatched = await dispatch_job(
+        job.get("job_id", ""),
+        executor_id=executor,
+    )
+    if dispatched.get("error"):
+        return {
+            "job_id": job.get("job_id"),
+            "error": dispatched.get("error"),
+            "message": f"已创建 {job.get('job_id')} 但派工失败",
+        }
+    return {
+        "job_id": dispatched.get("job_id") or job.get("job_id"),
+        "status": dispatched.get("status"),
+        "steps": dispatched.get("steps"),
+        "message": format_job_close_message(dispatched)
+        if dispatched.get("status") in ("completed", "failed")
+        else (
+            f"已派工 {dispatched.get('job_id')}（{PLAYBOOK_CODING_CURSOR} → {executor}），"
+            "进度见办公桌工单卡。"
+        ),
+    }
