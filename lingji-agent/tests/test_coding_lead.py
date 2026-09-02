@@ -1,17 +1,21 @@
+import sys
 from pathlib import Path
 from unittest.mock import AsyncMock
 
 import pytest
 
 from lingji_agent.execution.coding_lead import (
+    CursorPlanLeadRuntime,
     FakeLeadRuntime,
     LeadDecision,
     compose_executor_prompt,
     lead_cmd_is_safe,
+    make_lead_runtime,
     run_coding_with_lead,
     write_executor_prompt,
     write_lead_artifact,
 )
+from lingji_agent.foundation.config import CodingConfig
 
 
 def _ok_cli(job_dir):
@@ -252,3 +256,41 @@ async def test_lead_reject_stops_without_rerun(tmp_path: Path):
     assert result["reason"] == "needs_input"
     assert n["cli"] == 1
     assert lead.decide_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_cursor_plan_lead_cwd_is_lead_not_workspace(tmp_path: Path):
+    job = tmp_path / "LJ-LEAD0001"
+    (job / "workspace").mkdir(parents=True)
+    script = tmp_path / "lead.py"
+    script.write_text(
+        "import os, pathlib\n"
+        "print('PLAN:' + os.getcwd())\n"
+        "pathlib.Path('marker.txt').write_text('lead', encoding='utf-8')\n",
+        encoding="utf-8",
+    )
+    rt = CursorPlanLeadRuntime(
+        [sys.executable, "-u", str(script)],
+        hung_sec=5,
+        heartbeat_sec=0.05,
+        progress_sec=10,
+    )
+    decision = await rt.propose_plan(job_dir=job, brief="b", timeout_sec=5)
+    assert decision.ok is True
+    assert str((job / "lead").resolve()) in decision.text.replace("\\", "/")
+    assert (job / "lead" / "marker.txt").is_file()
+    assert not (job / "workspace" / "marker.txt").exists()
+
+
+def test_make_lead_runtime_none_when_empty_or_force():
+    assert make_lead_runtime(CodingConfig(lead_cmd=[])) is None
+    assert make_lead_runtime(CodingConfig(lead_cmd=["agent", "--force"])) is None
+    rt = make_lead_runtime(CodingConfig(lead_cmd=["/bin/agent", "-p", "--trust"]))
+    assert isinstance(rt, CursorPlanLeadRuntime)
+
+
+@pytest.mark.asyncio
+async def test_cursor_plan_lead_rejects_force_cmd(tmp_path: Path):
+    rt = CursorPlanLeadRuntime(["/bin/agent", "--force"])
+    d = await rt.propose_plan(job_dir=tmp_path, brief="b", timeout_sec=1)
+    assert d.ok is False and d.reason == "runner_missing"
