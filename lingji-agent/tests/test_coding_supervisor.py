@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from lingji_agent.execution import coding_supervisor as cs
 from lingji_agent.execution.coding_supervisor import (
     build_evidence,
     detect_needs_input,
@@ -22,6 +23,10 @@ from lingji_agent.execution.coding_supervisor import (
     run_coding_cli,
     try_acquire_lock,
 )
+
+
+def test_default_hung_sec_is_15_minutes():
+    assert cs._DEFAULT_HUNG_SEC == 900
 
 
 def test_normalize_git_url():

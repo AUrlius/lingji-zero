@@ -23,7 +23,7 @@ JOBS_ROOT_SENTINEL = "$JOBS_ROOT"
 INPUT_NEEDLES = ("Waiting for input", "Please choose")
 _LOCK_NAME = ".coding_lock"
 _JOB_DIR_RE = re.compile(r"^LJ-[0-9A-F]{8,}$")
-_DEFAULT_HUNG_SEC = 180
+_DEFAULT_HUNG_SEC = 900
 
 
 def normalize_git_url(url: str) -> str:
