@@ -7,6 +7,11 @@
 > **2026-08-31：** 主路径执行 = 青铜剑 Agent 收 `JOB_DELEGATE` 后跑 `scripts/playbooks/*.sh`。  
 > Hermes **无入站端口**；飞书↔Hermes 仅 break-glass。档 B（Hermes CLI）未接入 Job。  
 > **重启后补报：** `agent.restart` 会杀掉当前进程；回执写入 `lingji-agent/data/pending_job_report.json`，新进程连上 Gateway 后再 REPORT。
+>
+> **编码 Job（4.0e）不是 playbook：** `playbook=coding.cursor` 走 `job_invoke_coding` → 青铜剑 `coding_supervisor`（独立卷 + 无头 Cursor），**不**跑 `scripts/playbooks/*.sh`。  
+> 运维巡检仍用 `job_invoke` + 档 A playbook；勿把编码任务塞进 `job_invoke` / shell playbook。  
+> 未配置 `coding.jobs_root` / 未装 Cursor CLI 时，派单应 `runner_missing` 失败结案（勿当运维脚本调试）。  
+> 详见 [fleet-4.0e-coding-run-design.md](./fleet-4.0e-coding-run-design.md)。
 
 ---
 
