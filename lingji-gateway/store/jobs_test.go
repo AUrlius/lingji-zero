@@ -2,6 +2,7 @@ package store
 
 import (
 	"testing"
+	"time"
 )
 
 func TestJobStoreCreateAndComplete(t *testing.T) {
@@ -181,5 +182,77 @@ func TestJobStoreReportProgressKeepsDispatched(t *testing.T) {
 	}
 	if done.Status != "completed" {
 		t.Fatalf("want completed got %s", done.Status)
+	}
+}
+
+func TestFailStaleDispatchedRespectsPlanTimeout(t *testing.T) {
+	inbox, err := OpenInboxStore(t.TempDir() + "/inbox.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer inbox.Close()
+	js, err := NewJobStoreFromDB(inbox.DB())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	coding, err := js.CreateJob(CreateJobInput{
+		UserID:           "u",
+		SchedulerAgentID: "lingji-laptop",
+		Intent:           "long coding",
+		Playbook:         "coding.cursor",
+		Plan: map[string]any{
+			"executor_id": "lingji-pc",
+			"timeout_sec": 3600,
+			"brief":       "write hi",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := js.DispatchStep(coding.JobID, "", "lingji-pc"); err != nil {
+		t.Fatal(err)
+	}
+
+	ops, err := js.CreateJob(CreateJobInput{
+		UserID:           "u",
+		SchedulerAgentID: "lingji-laptop",
+		Intent:           "status",
+		Playbook:         "agent.status",
+		Plan:             map[string]any{"executor_id": "lingji-pc"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := js.DispatchStep(ops.JobID, "", "lingji-pc"); err != nil {
+		t.Fatal(err)
+	}
+
+	started := time.Now().UTC().Add(-35 * time.Minute).Format(time.RFC3339)
+	if _, err := inbox.DB().Exec(
+		`UPDATE fleet_job_steps SET started_at=? WHERE status='dispatched'`, started,
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	failed, err := js.FailStaleDispatched(30 * time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	codingAfter, err := js.GetJob(coding.JobID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if codingAfter.Status == "failed" {
+		t.Fatalf("coding job with timeout_sec=3600 must not fail at 35m; status=%s", codingAfter.Status)
+	}
+
+	opsAfter, err := js.GetJob(ops.JobID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if opsAfter.Status != "failed" {
+		t.Fatalf("agent.status job at 35m must fail; status=%s failed=%d", opsAfter.Status, len(failed))
 	}
 }

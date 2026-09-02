@@ -628,14 +628,55 @@ func (s *JobStore) DispatchStep(jobID, stepID, executorID string) (*Job, error) 
 	return s.GetJob(jobID)
 }
 
+func planTimeoutSec(plan map[string]any, scope map[string]any) float64 {
+	type pair struct {
+		src map[string]any
+		key string
+	}
+	for _, p := range []pair{
+		{plan, "timeout_sec"},
+		{scope, "max_timeout_sec"},
+	} {
+		if p.src == nil {
+			continue
+		}
+		switch v := p.src[p.key].(type) {
+		case float64:
+			if v > 0 {
+				return v
+			}
+		case int:
+			if v > 0 {
+				return float64(v)
+			}
+		case json.Number:
+			f, err := v.Float64()
+			if err == nil && f > 0 {
+				return f
+			}
+		}
+	}
+	return 0
+}
+
+func jobDispatchGrace(job *Job, fallback time.Duration) time.Duration {
+	if job == nil {
+		return fallback
+	}
+	sec := planTimeoutSec(job.Plan, job.ApprovalScope)
+	if sec > 0 {
+		return time.Duration(sec)*time.Second + 2*time.Minute
+	}
+	return fallback
+}
+
 func (s *JobStore) FailStaleDispatched(timeout time.Duration) ([]*Job, error) {
 	if timeout <= 0 {
 		timeout = 30 * time.Minute
 	}
-	cutoff := time.Now().UTC().Add(-timeout).Format(time.RFC3339)
 	rows, err := s.db.Query(`
 		SELECT DISTINCT job_id FROM fleet_job_steps
-		WHERE status='dispatched' AND started_at != '' AND started_at < ?`, cutoff)
+		WHERE status='dispatched' AND started_at != ''`)
 	if err != nil {
 		return nil, err
 	}
@@ -649,17 +690,41 @@ func (s *JobStore) FailStaleDispatched(timeout time.Duration) ([]*Job, error) {
 		ids = append(ids, id)
 	}
 	var out []*Job
-	now := time.Now().UTC().Format(time.RFC3339)
+	now := time.Now().UTC()
+	nowStr := now.Format(time.RFC3339)
 	for _, id := range ids {
+		j, err := s.GetJob(id)
+		if err != nil || j == nil {
+			continue
+		}
+		grace := jobDispatchGrace(j, timeout)
+		cutoff := now.Add(-grace)
+		stale := false
+		for _, st := range j.Steps {
+			if st.Status != "dispatched" || st.StartedAt == "" {
+				continue
+			}
+			started, err := time.Parse(time.RFC3339, st.StartedAt)
+			if err != nil {
+				continue
+			}
+			if started.Before(cutoff) {
+				stale = true
+				break
+			}
+		}
+		if !stale {
+			continue
+		}
 		_, _ = s.db.Exec(`
 			UPDATE fleet_job_steps SET status='failed', error_text='dispatch timeout',
-				completed_at=? WHERE job_id=? AND status='dispatched'`, now, id)
+				completed_at=? WHERE job_id=? AND status='dispatched'`, nowStr, id)
 		_, _ = s.db.Exec(`
 			UPDATE fleet_jobs SET status='failed', summary=?, updated_at=?, closed_at=?
-			WHERE job_id=?`, id+" 失败：执行机无回执", now, now, id)
-		j, err := s.GetJob(id)
+			WHERE job_id=?`, id+" 失败：执行机无回执", nowStr, nowStr, id)
+		j2, err := s.GetJob(id)
 		if err == nil {
-			out = append(out, j)
+			out = append(out, j2)
 		}
 	}
 	return out, nil
