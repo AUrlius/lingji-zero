@@ -14,11 +14,16 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from lingji_agent.execution.approval_scope import default_coding_scope
+from lingji_agent.execution.coding_lead import FakeLeadRuntime, LeadDecision
 from lingji_agent.execution.coding_supervisor import (
     handle_job_delegate,
     recover_orphan_coding_jobs,
 )
 from lingji_agent.foundation.config import CodingConfig
+
+
+def _lead() -> FakeLeadRuntime:
+    return FakeLeadRuntime(plan="ok plan")
 
 
 def _payload(**over) -> dict:
@@ -119,7 +124,9 @@ async def test_fake_success_reports_completed(tmp_path: Path):
         "lingji_agent.execution.coding_supervisor.run_coding_cli",
         fake_cli,
     ):
-        await handle_job_delegate(_payload(), _cfg(tmp_path), report=report)
+        await handle_job_delegate(
+            _payload(), _cfg(tmp_path), report=report, lead_runtime=_lead()
+        )
 
     fake_cli.assert_awaited()
     kwargs = report.await_args.kwargs
@@ -160,6 +167,7 @@ async def test_handle_job_delegate_second_job_executor_busy(tmp_path: Path):
                 _payload(job_id="LJ-AAAA0001"),
                 _cfg(tmp_path),
                 report=report,
+                lead_runtime=_lead(),
             )
         )
         await asyncio.wait_for(started.wait(), timeout=2)
@@ -168,6 +176,7 @@ async def test_handle_job_delegate_second_job_executor_busy(tmp_path: Path):
                 _payload(job_id="LJ-BBBB0001"),
                 _cfg(tmp_path),
                 report=report,
+                lead_runtime=_lead(),
             )
         )
         done, _pending = await asyncio.wait({second}, timeout=0.5)
@@ -207,7 +216,9 @@ async def test_progress_reports_are_awaited_before_delegate_returns(tmp_path: Pa
         fake_cli,
     ):
         delegate = asyncio.create_task(
-            handle_job_delegate(_payload(), _cfg(tmp_path), report=report)
+            handle_job_delegate(
+                _payload(), _cfg(tmp_path), report=report, lead_runtime=_lead()
+            )
         )
         await asyncio.wait_for(progress_started.wait(), timeout=2)
         await asyncio.sleep(0.05)
@@ -235,7 +246,9 @@ async def test_cli_failure_reports_failed(tmp_path: Path):
         "lingji_agent.execution.coding_supervisor.run_coding_cli",
         fake_cli,
     ):
-        await handle_job_delegate(_payload(), _cfg(tmp_path), report=report)
+        await handle_job_delegate(
+            _payload(), _cfg(tmp_path), report=report, lead_runtime=_lead()
+        )
     kwargs = report.await_args.kwargs
     assert kwargs["status"] == "failed"
     assert kwargs["error"] == "crash"
@@ -280,12 +293,68 @@ async def test_get_job_fills_brief_then_completed(tmp_path: Path):
             _cfg(tmp_path),
             report=report,
             get_job=get_job,
+            lead_runtime=_lead(),
         )
     get_job.assert_awaited_with("LJ-ABCD1234")
     assert report.await_args.kwargs["status"] == "completed"
     assert (tmp_path / "LJ-ABCD1234" / "brief.md").read_text(encoding="utf-8") == (
         "from gateway"
     )
+
+
+@pytest.mark.asyncio
+async def test_missing_lead_cmd_reports_runner_missing(tmp_path: Path):
+    report = AsyncMock()
+    fake_cli = AsyncMock()
+    with patch(
+        "lingji_agent.execution.coding_supervisor.run_coding_cli",
+        fake_cli,
+    ):
+        await handle_job_delegate(_payload(), _cfg(tmp_path), report=report)
+    kwargs = report.await_args.kwargs
+    assert kwargs["status"] == "failed"
+    assert kwargs["evidence"]["reason"] == "runner_missing"
+    assert "lead_cmd" in (kwargs["error"] or "")
+    fake_cli.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_delegate_needs_input_then_lead_then_completed(tmp_path: Path):
+    report = AsyncMock()
+    n = {"cli": 0}
+
+    async def fake_cli(*, job_dir, **kwargs):
+        n["cli"] += 1
+        if n["cli"] == 1:
+            q = job_dir / "out" / "questions.md"
+            q.parent.mkdir(parents=True, exist_ok=True)
+            q.write_text("Please choose A", encoding="utf-8")
+            return {
+                "ok": False,
+                "reason": "needs_input",
+                "exit_code": -1,
+                "evidence": {"reason": "needs_input"},
+            }
+        return _ok_cli_result(job_dir)
+
+    lead = FakeLeadRuntime(
+        plan="use python",
+        decisions=[LeadDecision(ok=True, text="A")],
+    )
+    with patch(
+        "lingji_agent.execution.coding_supervisor.run_coding_cli",
+        fake_cli,
+    ):
+        await handle_job_delegate(
+            _payload(), _cfg(tmp_path), report=report, lead_runtime=lead
+        )
+    kwargs = report.await_args.kwargs
+    assert kwargs["status"] == "completed"
+    assert n["cli"] == 2
+    job_dir = tmp_path / "LJ-ABCD1234"
+    assert "use python" in (job_dir / "lead" / "plan.md").read_text(encoding="utf-8")
+    assert "A" in (job_dir / "lead" / "decisions.md").read_text(encoding="utf-8")
+
 
 
 def _orphan_dir(

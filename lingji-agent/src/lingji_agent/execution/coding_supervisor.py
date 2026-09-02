@@ -557,8 +557,12 @@ def _empty_evidence(*, runner: str, reason: str) -> dict:
     )
 
 
-async def handle_job_delegate(payload: dict, coding_cfg, *, report, get_job=None) -> None:
+async def handle_job_delegate(
+    payload: dict, coding_cfg, *, report, get_job=None, lead_runtime=None
+) -> None:
     """JOB_DELEGATE 编码分支：coding.* 才处理，禁止走 run_playbook。"""
+    from lingji_agent.execution.coding_lead import make_lead_runtime, run_coding_with_lead
+
     p = payload or {}
     playbook_id = p.get("playbook_id") or ""
     if not str(playbook_id).startswith("coding."):
@@ -629,6 +633,15 @@ async def handle_job_delegate(payload: dict, coding_cfg, *, report, get_job=None
         await _fail("scope", error="source_git not allowed")
         return
 
+    if lead_runtime is None:
+        lead_runtime = make_lead_runtime(coding_cfg)
+    if lead_runtime is None:
+        await _fail(
+            "runner_missing",
+            error="coding lead missing: lead_cmd 未配置",
+        )
+        return
+
     root = Path(jobs_root)
     lock_pid = os.getpid()
     if not await _claim_executor(root, lock_pid):
@@ -673,14 +686,23 @@ async def handle_job_delegate(payload: dict, coding_cfg, *, report, get_job=None
             progress_tasks.add(task)
             task.add_done_callback(_on_progress_done)
 
-        result = await run_coding_cli(
-            start_cmd=start_cmd,
+        result = await run_coding_with_lead(
             job_dir=job_dir,
+            brief=brief,
+            lead=lead_runtime,
+            run_cli=run_coding_cli,
+            start_cmd=start_cmd,
             timeout_sec=timeout_sec,
             hung_sec=getattr(coding_cfg, "hung_sec", _DEFAULT_HUNG_SEC),
             heartbeat_sec=getattr(coding_cfg, "heartbeat_sec", 15),
             progress_sec=getattr(coding_cfg, "progress_sec", 30),
             on_progress=_on_progress,
+            lead_round_timeout_sec=float(
+                getattr(coding_cfg, "lead_round_timeout_sec", 1200) or 1200
+            ),
+            lead_max_question_rounds=int(
+                getattr(coding_cfg, "lead_max_question_rounds", 3) or 3
+            ),
         )
         pending = list(progress_tasks)
         if pending:
