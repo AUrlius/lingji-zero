@@ -14,6 +14,54 @@ _ALLOWED_LEAD_NAMES = frozenset({"plan.md", "decisions.md"})
 _SUPERVISE_FAIL_REASONS = frozenset({"timeout", "hung", "crash"})
 
 
+def _same_file(a: Path, b: Path) -> bool:
+    try:
+        return a.exists() and b.exists() and a.samefile(b)
+    except OSError:
+        return False
+
+
+def _link_or_skip_brief_run_log(supervise_log: Path, brief_log: Path) -> None:
+    """Best-effort hardlink/symlink lead/run.log → logs/run.log before spawn."""
+    if _same_file(supervise_log, brief_log):
+        return
+    if brief_log.exists() or brief_log.is_symlink():
+        return
+    try:
+        brief_log.hardlink_to(supervise_log)
+        return
+    except OSError:
+        pass
+    try:
+        brief_log.symlink_to(Path("logs") / "run.log")
+    except OSError:
+        pass
+
+
+def _ensure_brief_run_log(supervise_log: Path, brief_log: Path) -> None:
+    """Ensure brief lead/run.log exists (link if possible, else copy)."""
+    if _same_file(supervise_log, brief_log):
+        return
+    if not supervise_log.is_file():
+        return
+    if brief_log.exists() or brief_log.is_symlink():
+        try:
+            brief_log.unlink()
+        except OSError:
+            pass
+    try:
+        brief_log.hardlink_to(supervise_log)
+        return
+    except OSError:
+        pass
+    try:
+        brief_log.symlink_to(Path("logs") / "run.log")
+        return
+    except OSError:
+        pass
+    brief_log.write_bytes(supervise_log.read_bytes())
+
+
 def lead_cmd_is_safe(cmd: list[str] | None) -> bool:
     if not cmd:
         return False
@@ -134,28 +182,19 @@ class CursorPlanLeadRuntime:
 
         lead_dir = job_dir / "lead"
         lead_dir.mkdir(parents=True, exist_ok=True)
-        # supervise_process watches {job_dir}/logs/run.log — mirror layout under lead/
+        # Always write the FD supervise_process watches; mirror brief path lead/run.log.
         logs_dir = lead_dir / "logs"
         logs_dir.mkdir(parents=True, exist_ok=True)
-        log_path = lead_dir / "run.log"
         supervise_log = logs_dir / "run.log"
-        if not log_path.exists():
-            log_path.touch()
+        brief_log = lead_dir / "run.log"
         if not supervise_log.exists():
-            try:
-                supervise_log.hardlink_to(log_path)
-            except OSError:
-                try:
-                    supervise_log.symlink_to(Path("..") / "run.log")
-                except OSError:
-                    # Last resort: same path content via opening lead/run.log only;
-                    # hung detection may miss growth until process exits.
-                    pass
+            supervise_log.touch()
+        _link_or_skip_brief_run_log(supervise_log, brief_log)
 
-        offset = log_path.stat().st_size if log_path.is_file() else 0
+        offset = supervise_log.stat().st_size if supervise_log.is_file() else 0
         from lingji_agent.execution.coding_supervisor import supervise_process
 
-        log_f = log_path.open("ab")
+        log_f = supervise_log.open("ab")
         try:
             try:
                 proc = self._spawn(
@@ -179,10 +218,11 @@ class CursorPlanLeadRuntime:
             )
         finally:
             log_f.close()
+            _ensure_brief_run_log(supervise_log, brief_log)
 
         chunk = b""
-        if log_path.is_file():
-            data = log_path.read_bytes()
+        if supervise_log.is_file():
+            data = supervise_log.read_bytes()
             chunk = data[offset:] if offset <= len(data) else data
         text = chunk.decode("utf-8", errors="replace").strip()
 
