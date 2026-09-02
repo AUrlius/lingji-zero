@@ -164,6 +164,10 @@ class TestCodingScope:
         )
         assert ok and reason == ""
 
+    def test_default_coding_scope_timeout_is_4h(self):
+        scope = default_coding_scope(now=NOW)
+        assert scope["max_timeout_sec"] == 14400
+
     def test_coding_scope_rejects_runner_and_git(self):
         scope = default_coding_scope(
             source_git="https://github.com/AUrlius/lingji-zero", now=NOW

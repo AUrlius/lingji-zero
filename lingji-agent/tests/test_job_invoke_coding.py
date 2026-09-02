@@ -34,13 +34,27 @@ async def test_runner_only_cursor():
 @pytest.mark.asyncio
 async def test_timeout_hard_cap():
     out = await job_invoke_coding(
-        user_id="u1", intent="x", brief="do work", timeout_sec=3601
+        user_id="u1", intent="x", brief="do work", timeout_sec=28801
     )
     assert out == {"error": "timeout_sec 超过硬顶"}
     out2 = await job_invoke_coding(
         user_id="u1", intent="x", brief="do work", timeout_sec=-1
     )
     assert out2 == {"error": "timeout_sec 超过硬顶"}
+
+
+@pytest.mark.asyncio
+async def test_timeout_3601_is_allowed():
+    create = AsyncMock(return_value={"job_id": "LJ-CODE01"})
+    dispatch = AsyncMock(return_value={"job_id": "LJ-CODE01", "status": "dispatched"})
+    with patch("lingji_agent.execution.tools.job_tools.create_job", create), patch(
+        "lingji_agent.execution.tools.job_tools.dispatch_job", dispatch
+    ):
+        out = await job_invoke_coding(
+            user_id="u1", intent="x", brief="do work", timeout_sec=3601
+        )
+    assert "error" not in out
+    assert create.await_args.kwargs["plan"]["timeout_sec"] == 3601
 
 
 @pytest.mark.asyncio
@@ -84,12 +98,12 @@ async def test_create_and_dispatch_plan_and_scope():
     assert kwargs["intent"] == brief[:40]
     assert kwargs["plan"]["brief"] == brief
     assert kwargs["plan"]["runner"] == "cursor"
-    assert kwargs["plan"]["timeout_sec"] == 1800
+    assert kwargs["plan"]["timeout_sec"] == 14400
     assert kwargs["plan"]["source_git"] == "https://github.com/AUrlius/lingji-zero.git"
     assert kwargs["plan"]["executor_id"] == "lingji-pc"
     assert kwargs["approval_scope"]["playbooks"] == [PLAYBOOK_CODING_CURSOR]
     assert kwargs["approval_scope"]["runners"] == ["cursor"]
-    assert kwargs["approval_scope"]["max_timeout_sec"] == 1800
+    assert kwargs["approval_scope"]["max_timeout_sec"] == 14400
     assert kwargs["approval_scope"]["source_git"] == (
         "https://github.com/AUrlius/lingji-zero.git"
     )

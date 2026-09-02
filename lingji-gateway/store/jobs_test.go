@@ -256,3 +256,49 @@ func TestFailStaleDispatchedRespectsPlanTimeout(t *testing.T) {
 		t.Fatalf("agent.status job at 35m must fail; status=%s failed=%d", opsAfter.Status, len(failed))
 	}
 }
+
+func TestFailStaleDispatchedCoding4hSurvives5h(t *testing.T) {
+	inbox, err := OpenInboxStore(t.TempDir() + "/inbox.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer inbox.Close()
+	js, err := NewJobStoreFromDB(inbox.DB())
+	if err != nil {
+		t.Fatal(err)
+	}
+	coding, err := js.CreateJob(CreateJobInput{
+		UserID:           "u",
+		SchedulerAgentID: "lingji-laptop",
+		Intent:           "long coding",
+		Playbook:         "coding.cursor",
+		Plan: map[string]any{
+			"executor_id": "lingji-pc",
+			"timeout_sec": 14400,
+			"brief":       "write hi",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := js.DispatchStep(coding.JobID, "", "lingji-pc"); err != nil {
+		t.Fatal(err)
+	}
+	started := time.Now().UTC().Add(-3 * time.Hour).Format(time.RFC3339)
+	if _, err := inbox.DB().Exec(
+		`UPDATE fleet_job_steps SET started_at=? WHERE status='dispatched'`,
+		started,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := js.FailStaleDispatched(30 * time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	codingAfter, err := js.GetJob(coding.JobID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if codingAfter.Status == "failed" {
+		t.Fatalf("coding job timeout_sec=14400 must not fail at 3h; status=%s", codingAfter.Status)
+	}
+}
