@@ -76,11 +76,11 @@ coding:
   # start_cmd: ["/mnt/e/LingjiPlan/LingjiZero/scripts/coding-run-cursor.sh"]
   start_cmd: []
   # 领队（禁止 --force / --yolo）。cwd 由代码设为 job/lead/
+  # 建议指向仓库脚本（读 ../brief.md 或 brief_in.md，追加 questions_in.md）：
+  # lead_cmd: ["/mnt/e/LingjiPlan/LingjiZero/scripts/coding-run-lead.sh"]
   lead_cmd: []
   # lead_cmd:
-  #   - /home/unix20260308/.local/bin/agent
-  #   - -p
-  #   - --trust
+  #   - /mnt/e/LingjiPlan/LingjiZero/scripts/coding-run-lead.sh
   timeout_sec: 14400       # 4h 软超时
   timeout_hard_sec: 28800   # 8h 硬超时
   hung_sec: 900             # 15min 无日志增长判 hung

@@ -420,9 +420,12 @@ async def supervise_process(
     progress_sec: float,
     on_progress=None,
     clock=None,
+    detect_input: bool = True,
+    heartbeat_dir: Path | None = None,
 ) -> dict:
     tick = clock or time.monotonic
     job_dir = Path(job_dir)
+    hb_dir = Path(heartbeat_dir) if heartbeat_dir is not None else job_dir
     log_path = job_dir / "logs" / "run.log"
     started = tick()
     last_hb = started - float(heartbeat_sec or 0) - 1
@@ -434,7 +437,7 @@ async def supervise_process(
     while True:
         now = tick()
         if now - last_hb >= float(heartbeat_sec):
-            _write_heartbeat(job_dir)
+            _write_heartbeat(hb_dir)
             last_hb = now
 
         size = log_path.stat().st_size if log_path.is_file() else 0
@@ -442,7 +445,7 @@ async def supervise_process(
             chunk = _read_log_slice(log_path, last_size, size)
             last_size = size
             last_growth = now
-            if detect_needs_input(chunk):
+            if detect_input and detect_needs_input(chunk):
                 (job_dir / "out").mkdir(parents=True, exist_ok=True)
                 (job_dir / "out" / "questions.md").write_text(
                     log_tail(log_path, 2048),

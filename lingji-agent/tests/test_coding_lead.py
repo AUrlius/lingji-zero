@@ -320,3 +320,102 @@ async def test_cursor_plan_lead_rejects_force_cmd(tmp_path: Path):
     rt = CursorPlanLeadRuntime(["/bin/agent", "--force"])
     d = await rt.propose_plan(job_dir=tmp_path, brief="b", timeout_sec=1)
     assert d.ok is False and d.reason == "runner_missing"
+
+
+def test_coding_run_lead_sh_exists_and_safe():
+    root = Path(__file__).resolve().parents[2]
+    script = root / "scripts" / "coding-run-lead.sh"
+    assert script.is_file()
+    text = script.read_text(encoding="utf-8")
+    assert "--trust" in text
+    assert "--force" not in text
+    assert "--yolo" not in text
+    import shutil
+    import subprocess
+
+    bash = shutil.which("bash")
+    if bash:
+        subprocess.run([bash, "-n", str(script)], check=True)
+
+
+@pytest.mark.asyncio
+async def test_cursor_plan_lead_sees_parent_brief(tmp_path: Path):
+    job = tmp_path / "LJ-LEADBRIEF"
+    (job / "workspace").mkdir(parents=True)
+    (job / "brief.md").write_text("brief-from-parent", encoding="utf-8")
+    script = tmp_path / "lead_brief.py"
+    script.write_text(
+        "from pathlib import Path\n"
+        "print('PLAN:' + Path('../brief.md').read_text(encoding='utf-8'))\n",
+        encoding="utf-8",
+    )
+    rt = CursorPlanLeadRuntime(
+        [sys.executable, "-u", str(script)],
+        hung_sec=5,
+        heartbeat_sec=0.05,
+        progress_sec=10,
+    )
+    decision = await rt.propose_plan(job_dir=job, brief="arg-brief", timeout_sec=5)
+    assert decision.ok is True
+    assert "brief-from-parent" in decision.text
+    assert (job / "lead" / "brief_in.md").read_text(encoding="utf-8") == "arg-brief"
+
+
+@pytest.mark.asyncio
+async def test_cursor_plan_lead_ignores_please_choose_needles(tmp_path: Path):
+    job = tmp_path / "LJ-LEADNEEDLE"
+    job.mkdir()
+    script = tmp_path / "lead_needle.py"
+    script.write_text(
+        "print('Please choose A or B', flush=True)\n"
+        "print('PLAN:ok', flush=True)\n",
+        encoding="utf-8",
+    )
+    rt = CursorPlanLeadRuntime(
+        [sys.executable, "-u", str(script)],
+        hung_sec=5,
+        heartbeat_sec=0.05,
+        progress_sec=10,
+    )
+    decision = await rt.propose_plan(job_dir=job, brief="b", timeout_sec=5)
+    assert decision.ok is True
+    assert "PLAN:ok" in decision.text
+    assert decision.reason != "needs_input"
+    assert decision.reason != "lead_plan_missing"
+
+
+@pytest.mark.asyncio
+async def test_cursor_plan_lead_writes_job_root_pid_and_heartbeat(tmp_path: Path):
+    import asyncio
+    import time
+
+    job = tmp_path / "LJ-LEADHB01"
+    job.mkdir()
+    script = tmp_path / "lead_sleep.py"
+    script.write_text(
+        "import time\nprint('PLAN:sleep', flush=True)\ntime.sleep(2)\n",
+        encoding="utf-8",
+    )
+    rt = CursorPlanLeadRuntime(
+        [sys.executable, "-u", str(script)],
+        hung_sec=10,
+        heartbeat_sec=0.05,
+        progress_sec=10,
+    )
+    task = asyncio.create_task(rt.propose_plan(job_dir=job, brief="b", timeout_sec=5))
+    seen_pid = False
+    seen_hb = False
+    deadline = time.monotonic() + 3
+    while time.monotonic() < deadline and not (seen_pid and seen_hb):
+        if (job / ".pid").is_file():
+            seen_pid = True
+        if (job / "logs" / "heartbeat").is_file():
+            seen_hb = True
+        await asyncio.sleep(0.05)
+    decision = await task
+    assert decision.ok is True
+    assert seen_pid, "LJ-*/.pid must be visible during lead run"
+    assert seen_hb, "LJ-*/logs/heartbeat must be written for orphan recovery"
+    assert not (job / "lead" / "logs" / "heartbeat").is_file() or (
+        job / "logs" / "heartbeat"
+    ).is_file()
