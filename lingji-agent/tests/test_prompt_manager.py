@@ -7,6 +7,9 @@ from lingji_agent.execution.registry import ToolRegistry, RiskLevel
 
 
 class TestPromptManager:
+    def test_base_system_prompt_coding_tool(self):
+        assert "job_invoke_coding" in BASE_SYSTEM_PROMPT
+
     def test_default_prompt(self):
         pm = PromptManager(device_id="test-device")
         prompt = pm.build_system_prompt()

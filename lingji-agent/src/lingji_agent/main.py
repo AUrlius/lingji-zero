@@ -312,7 +312,7 @@ async def main(config_path: str | None = None):
                 return (
                     f"本机 {config.network.device_id} 是用户的**秘书（调度 Agent）**。"
                     f"值守执行机：{g}。"
-                    "跨机传文件用 fleet_send_file；运维用 job_invoke(playbook=agent.status 等)。"
+                    "跨机传文件用 fleet_send_file；运维用 job_invoke(playbook=agent.status 等)。编码用 job_invoke_coding。"
                     "禁止本机 execute_command 做 find/重启/发给青铜剑。"
                     "对用户给一句话结案并带 LJ-*。"
                     "值守机 CRITICAL 在进行中 Job 的 approval_scope 内由系统代批，不要再问用户确认。"
