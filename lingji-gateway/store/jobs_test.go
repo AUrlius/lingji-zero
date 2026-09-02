@@ -58,6 +58,31 @@ func TestJobStoreCreateAndComplete(t *testing.T) {
 	}
 }
 
+func TestJobStoreCodingRunStepName(t *testing.T) {
+	inbox, err := OpenInboxStore(t.TempDir() + "/inbox.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer inbox.Close()
+	js, err := NewJobStoreFromDB(inbox.DB())
+	if err != nil {
+		t.Fatal(err)
+	}
+	job, err := js.CreateJob(CreateJobInput{
+		UserID:           "u",
+		SchedulerAgentID: "lingji-laptop",
+		Intent:           "hello",
+		Playbook:         "coding.cursor",
+		Plan:             map[string]any{"executor_id": "lingji-pc", "brief": "write hi"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(job.Steps) != 1 || job.Steps[0].Name != "coding_run" {
+		t.Fatalf("steps=%+v", job.Steps)
+	}
+}
+
 func TestJobStorePlaybookAndReport(t *testing.T) {
 	inbox, err := OpenInboxStore(t.TempDir() + "/inbox.db")
 	if err != nil {

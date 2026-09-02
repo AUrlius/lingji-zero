@@ -250,11 +250,15 @@ func buildPlaybookSteps(jobID, playbook string, plan map[string]any) []JobStep {
 	if executor == "" {
 		executor = "lingji-pc"
 	}
+	name := "run_playbook"
+	if strings.HasPrefix(playbook, "coding.") {
+		name = "coding_run"
+	}
 	return []JobStep{
 		{
 			StepID:     jobID + "-S1",
 			JobID:      jobID,
-			Name:       "run_playbook",
+			Name:       name,
 			ExecutorID: executor,
 			Status:     "pending",
 			Mandatory:  true,
