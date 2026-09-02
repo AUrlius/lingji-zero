@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import subprocess
 import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 
+from lingji_agent.execution.hermes_session import argv_list
+
 _ALLOWED_LEAD_NAMES = frozenset({"plan.md", "decisions.md"})
+_SUPERVISE_FAIL_REASONS = frozenset({"timeout", "hung", "crash"})
 
 
 def lead_cmd_is_safe(cmd: list[str] | None) -> bool:
@@ -86,12 +90,122 @@ class FakeLeadRuntime:
         return self._decisions.pop(0)
 
 
+class CursorPlanLeadRuntime:
+    def __init__(
+        self,
+        lead_cmd: list[str],
+        *,
+        hung_sec: float = 900,
+        heartbeat_sec: float = 15,
+        progress_sec: float = 30,
+        spawn=None,
+        argv_check=None,
+    ) -> None:
+        self._lead_cmd = [str(x) for x in (lead_cmd or [])]
+        self._hung_sec = float(hung_sec)
+        self._heartbeat_sec = float(heartbeat_sec)
+        self._progress_sec = float(progress_sec)
+        self._spawn = spawn if spawn is not None else subprocess.Popen
+        self._argv_check = argv_check if argv_check is not None else argv_list
+
+    async def propose_plan(
+        self, *, job_dir: Path, brief: str, timeout_sec: float
+    ) -> LeadDecision:
+        return await self._run_lead(job_dir=Path(job_dir), timeout_sec=timeout_sec)
+
+    async def decide(
+        self, *, job_dir: Path, questions: str, timeout_sec: float
+    ) -> LeadDecision:
+        job = Path(job_dir)
+        lead_dir = job / "lead"
+        lead_dir.mkdir(parents=True, exist_ok=True)
+        (lead_dir / "questions_in.md").write_text(questions or "", encoding="utf-8")
+        return await self._run_lead(job_dir=job, timeout_sec=timeout_sec)
+
+    async def _run_lead(self, *, job_dir: Path, timeout_sec: float) -> LeadDecision:
+        if not lead_cmd_is_safe(self._lead_cmd):
+            return LeadDecision(ok=False, text="", reason="runner_missing")
+        try:
+            argv = self._argv_check(self._lead_cmd)
+        except (TypeError, ValueError):
+            return LeadDecision(ok=False, text="", reason="runner_missing")
+        if not argv:
+            return LeadDecision(ok=False, text="", reason="runner_missing")
+
+        lead_dir = job_dir / "lead"
+        lead_dir.mkdir(parents=True, exist_ok=True)
+        # supervise_process watches {job_dir}/logs/run.log — mirror layout under lead/
+        logs_dir = lead_dir / "logs"
+        logs_dir.mkdir(parents=True, exist_ok=True)
+        log_path = lead_dir / "run.log"
+        supervise_log = logs_dir / "run.log"
+        if not log_path.exists():
+            log_path.touch()
+        if not supervise_log.exists():
+            try:
+                supervise_log.hardlink_to(log_path)
+            except OSError:
+                try:
+                    supervise_log.symlink_to(Path("..") / "run.log")
+                except OSError:
+                    # Last resort: same path content via opening lead/run.log only;
+                    # hung detection may miss growth until process exits.
+                    pass
+
+        offset = log_path.stat().st_size if log_path.is_file() else 0
+        from lingji_agent.execution.coding_supervisor import supervise_process
+
+        log_f = log_path.open("ab")
+        try:
+            try:
+                proc = self._spawn(
+                    argv,
+                    cwd=str(lead_dir),
+                    stdin=subprocess.DEVNULL,
+                    stdout=log_f,
+                    stderr=subprocess.STDOUT,
+                    start_new_session=True,
+                )
+            except OSError:
+                return LeadDecision(ok=False, text="", reason="runner_missing")
+
+            outcome = await supervise_process(
+                proc=proc,
+                job_dir=lead_dir,
+                timeout_sec=float(timeout_sec),
+                hung_sec=self._hung_sec,
+                heartbeat_sec=self._heartbeat_sec,
+                progress_sec=self._progress_sec,
+            )
+        finally:
+            log_f.close()
+
+        chunk = b""
+        if log_path.is_file():
+            data = log_path.read_bytes()
+            chunk = data[offset:] if offset <= len(data) else data
+        text = chunk.decode("utf-8", errors="replace").strip()
+
+        if outcome.get("reason") == "ok" and text:
+            return LeadDecision(ok=True, text=text, reason="")
+
+        reason = str(outcome.get("reason") or "")
+        if reason not in _SUPERVISE_FAIL_REASONS:
+            reason = "lead_plan_missing"
+        return LeadDecision(ok=False, text=text, reason=reason)
+
+
 def make_lead_runtime(coding_cfg) -> LeadRuntime | None:
-    """Build lead runtime from coding config. Task 8: None until Cursor in Task 9."""
+    """Build Cursor lead runtime when lead_cmd is present and safe."""
     lead_cmd = [str(x) for x in (getattr(coding_cfg, "lead_cmd", None) or [])]
     if not lead_cmd or not lead_cmd_is_safe(lead_cmd):
         return None
-    return None
+    return CursorPlanLeadRuntime(
+        lead_cmd,
+        hung_sec=float(getattr(coding_cfg, "hung_sec", 900) or 900),
+        heartbeat_sec=float(getattr(coding_cfg, "heartbeat_sec", 15) or 15),
+        progress_sec=float(getattr(coding_cfg, "progress_sec", 30) or 30),
+    )
 
 
 def compose_executor_prompt(
