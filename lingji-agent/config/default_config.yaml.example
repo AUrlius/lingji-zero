@@ -72,8 +72,15 @@ hermes_session:
 # lead_cmd 禁止含 --force / --yolo
 coding:
   jobs_root: ""
+  # 执行者（可 --force）。建议指向仓库脚本：
+  # start_cmd: ["/mnt/e/LingjiPlan/LingjiZero/scripts/coding-run-cursor.sh"]
   start_cmd: []
+  # 领队（禁止 --force / --yolo）。cwd 由代码设为 job/lead/
   lead_cmd: []
+  # lead_cmd:
+  #   - /home/unix20260308/.local/bin/agent
+  #   - -p
+  #   - --trust
   timeout_sec: 14400       # 4h 软超时
   timeout_hard_sec: 28800   # 8h 硬超时
   hung_sec: 900             # 15min 无日志增长判 hung
