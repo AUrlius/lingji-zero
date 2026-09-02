@@ -80,7 +80,7 @@ def validate_playbook(
 def default_coding_scope(
     *,
     jobs_root_sentinel: str = JOBS_ROOT_SENTINEL,
-    timeout_sec: int = 1800,
+    timeout_sec: int = 14400,
     source_git: str = "",
     runner: str = "cursor",
     now: datetime | None = None,

@@ -199,7 +199,7 @@ async def job_invoke(
             "source_git": {"type": "string", "description": "空或 git URL；执行机再查白名单"},
             "timeout_sec": {
                 "type": "integer",
-                "description": "默认 1800；0 同默认；硬顶 3600",
+                "description": "默认 14400；0 同默认；硬顶 28800",
             },
         },
         "required": ["user_id", "intent", "brief"],
@@ -232,8 +232,8 @@ async def job_invoke_coding(
     except (TypeError, ValueError):
         return {"error": "timeout_sec 超过硬顶"}
     if timeout == 0:
-        timeout = 1800
-    if timeout < 1 or timeout > 3600:
+        timeout = 14400
+    if timeout < 1 or timeout > 28800:
         return {"error": "timeout_sec 超过硬顶"}
 
     intent_text = (intent or "").strip() or brief_text[:40]
