@@ -159,7 +159,11 @@ class CursorPlanLeadRuntime:
     async def propose_plan(
         self, *, job_dir: Path, brief: str, timeout_sec: float
     ) -> LeadDecision:
-        return await self._run_lead(job_dir=Path(job_dir), timeout_sec=timeout_sec)
+        job = Path(job_dir)
+        lead_dir = job / "lead"
+        lead_dir.mkdir(parents=True, exist_ok=True)
+        (lead_dir / "brief_in.md").write_text(brief or "", encoding="utf-8")
+        return await self._run_lead(job_dir=job, timeout_sec=timeout_sec)
 
     async def decide(
         self, *, job_dir: Path, questions: str, timeout_sec: float
@@ -181,6 +185,7 @@ class CursorPlanLeadRuntime:
             return LeadDecision(ok=False, text="", reason="runner_missing")
 
         lead_dir = job_dir / "lead"
+        lj_dir = lead_dir.parent
         lead_dir.mkdir(parents=True, exist_ok=True)
         # Always write the FD supervise_process watches; mirror brief path lead/run.log.
         logs_dir = lead_dir / "logs"
@@ -208,6 +213,8 @@ class CursorPlanLeadRuntime:
             except OSError:
                 return LeadDecision(ok=False, text="", reason="runner_missing")
 
+            # Orphan recovery looks at LJ-*/.pid and LJ-*/logs/heartbeat.
+            (lj_dir / ".pid").write_text(str(proc.pid), encoding="utf-8")
             outcome = await supervise_process(
                 proc=proc,
                 job_dir=lead_dir,
@@ -215,6 +222,8 @@ class CursorPlanLeadRuntime:
                 hung_sec=self._hung_sec,
                 heartbeat_sec=self._heartbeat_sec,
                 progress_sec=self._progress_sec,
+                detect_input=False,
+                heartbeat_dir=lj_dir,
             )
         finally:
             log_f.close()
