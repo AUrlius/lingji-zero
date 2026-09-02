@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Protocol
 
 _ALLOWED_LEAD_NAMES = frozenset({"plan.md", "decisions.md"})
 
@@ -36,6 +38,51 @@ def write_lead_artifact(
         content = text
     dest.write_text(content, encoding="utf-8")
     return dest
+
+
+@dataclass
+class LeadDecision:
+    ok: bool
+    text: str
+    reason: str = ""
+
+
+class LeadRuntime(Protocol):
+    async def propose_plan(
+        self, *, job_dir: Path, brief: str, timeout_sec: float
+    ) -> LeadDecision: ...
+
+    async def decide(
+        self, *, job_dir: Path, questions: str, timeout_sec: float
+    ) -> LeadDecision: ...
+
+
+class FakeLeadRuntime:
+    def __init__(
+        self,
+        plan: str = "use python",
+        decisions: list[LeadDecision] | None = None,
+    ) -> None:
+        self._plan = plan
+        self._decisions = list(decisions) if decisions is not None else []
+        self.propose_timeouts: list[float] = []
+        self.decide_calls = 0
+
+    async def propose_plan(
+        self, *, job_dir: Path, brief: str, timeout_sec: float
+    ) -> LeadDecision:
+        self.propose_timeouts.append(timeout_sec)
+        if self._plan.strip():
+            return LeadDecision(ok=True, text=self._plan, reason="")
+        return LeadDecision(ok=False, text=self._plan, reason="lead_plan_missing")
+
+    async def decide(
+        self, *, job_dir: Path, questions: str, timeout_sec: float
+    ) -> LeadDecision:
+        self.decide_calls += 1
+        if not self._decisions:
+            return LeadDecision(ok=False, text="", reason="needs_input")
+        return self._decisions.pop(0)
 
 
 def compose_executor_prompt(

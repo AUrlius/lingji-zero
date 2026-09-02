@@ -3,6 +3,8 @@ from pathlib import Path
 import pytest
 
 from lingji_agent.execution.coding_lead import (
+    FakeLeadRuntime,
+    LeadDecision,
     compose_executor_prompt,
     lead_cmd_is_safe,
     write_executor_prompt,
@@ -54,3 +56,24 @@ def test_compose_and_write_executor_prompt(tmp_path: Path):
         brief="b", plan="p", decisions="choose A"
     )
     assert "## 领队批复" in prompt and "choose A" in prompt
+
+
+@pytest.mark.asyncio
+async def test_fake_lead_runtime_records_timeouts(tmp_path: Path):
+    lead = FakeLeadRuntime(
+        plan="ship hello.txt",
+        decisions=[LeadDecision(ok=True, text="pick A")],
+    )
+    plan = await lead.propose_plan(job_dir=tmp_path, brief="hi", timeout_sec=12.5)
+    assert plan.ok is True
+    assert plan.text == "ship hello.txt"
+    assert lead.propose_timeouts == [12.5]
+    d = await lead.decide(job_dir=tmp_path, questions="A or B?", timeout_sec=9)
+    assert d.ok is True and d.text == "pick A"
+    assert lead.decide_calls == 1
+    empty = FakeLeadRuntime(plan="  ")
+    missing = await empty.propose_plan(job_dir=tmp_path, brief="x", timeout_sec=1)
+    assert missing.ok is False and missing.reason == "lead_plan_missing"
+    assert not (tmp_path / "workspace").exists() or not any(
+        (tmp_path / "workspace").iterdir()
+    )
