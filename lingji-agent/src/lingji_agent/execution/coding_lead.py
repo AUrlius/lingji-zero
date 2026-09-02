@@ -86,6 +86,14 @@ class FakeLeadRuntime:
         return self._decisions.pop(0)
 
 
+def make_lead_runtime(coding_cfg) -> LeadRuntime | None:
+    """Build lead runtime from coding config. Task 8: None until Cursor in Task 9."""
+    lead_cmd = [str(x) for x in (getattr(coding_cfg, "lead_cmd", None) or [])]
+    if not lead_cmd or not lead_cmd_is_safe(lead_cmd):
+        return None
+    return None
+
+
 def compose_executor_prompt(
     *, brief: str, plan: str, decisions: str = ""
 ) -> str:
