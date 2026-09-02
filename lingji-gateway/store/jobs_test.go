@@ -257,7 +257,7 @@ func TestFailStaleDispatchedRespectsPlanTimeout(t *testing.T) {
 	}
 }
 
-func TestFailStaleDispatchedCoding4hSurvives5h(t *testing.T) {
+func TestFailStaleDispatchedCoding4hSurvives3h(t *testing.T) {
 	inbox, err := OpenInboxStore(t.TempDir() + "/inbox.db")
 	if err != nil {
 		t.Fatal(err)
