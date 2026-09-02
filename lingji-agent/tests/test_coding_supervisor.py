@@ -2,6 +2,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -12,6 +13,7 @@ from lingji_agent.execution.coding_supervisor import (
     git_url_allowed,
     job_work_dir,
     kill_process_tree,
+    list_orphan_reports,
     log_tail,
     normalize_git_url,
     pid_alive,
@@ -428,6 +430,73 @@ async def test_run_coding_cli_runner_missing_binary(tmp_path: Path):
     )
     assert result["reason"] == "runner_missing"
     assert result["ok"] is False
+
+
+def _orphan_job_dir(
+    tmp_path: Path,
+    *,
+    job_id: str = "LJ-DEADBEEF",
+    pid: str = "2147483647",
+    step_id: str = "s1",
+    heartbeat_fresh: bool = True,
+) -> Path:
+    job = tmp_path / job_id
+    job.mkdir()
+    (job / "logs").mkdir()
+    (job / "out").mkdir()
+    (job / "workspace").mkdir()
+    meta = {
+        "job_id": job_id,
+        "step_id": step_id,
+        "runner": "cursor",
+        "timeout_sec": 600,
+    }
+    (job / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
+    (job / ".pid").write_text(pid, encoding="utf-8")
+    hb = job / "logs" / "heartbeat"
+    hb.write_text("2026-01-01T00:00:00Z", encoding="utf-8")
+    if not heartbeat_fresh:
+        old = time.time() - 10_000
+        os.utime(hb, (old, old))
+    return job
+
+
+def test_list_orphan_reports_dead_pid_executor_lost(tmp_path: Path):
+    _orphan_job_dir(tmp_path)
+    reports = list_orphan_reports(tmp_path)
+    assert len(reports) == 1
+    report = reports[0]
+    assert report["job_id"] == "LJ-DEADBEEF"
+    assert report["step_id"] == "s1"
+    assert report["reason"] == "executor_lost"
+    assert report["evidence"]["reason"] == "executor_lost"
+    assert report["evidence"]["runner"] == "cursor"
+
+
+def test_list_orphan_reports_live_pid_skipped(tmp_path: Path):
+    _orphan_job_dir(tmp_path, pid=str(os.getpid()), heartbeat_fresh=True)
+    assert list_orphan_reports(tmp_path) == []
+
+
+def test_list_orphan_reports_live_pid_stale_heartbeat(tmp_path: Path):
+    _orphan_job_dir(
+        tmp_path,
+        pid=str(os.getpid()),
+        heartbeat_fresh=False,
+    )
+    reports = list_orphan_reports(tmp_path)
+    assert len(reports) == 1
+    assert reports[0]["reason"] == "executor_lost"
+
+
+def test_list_orphan_reports_skips_non_matching_dirs(tmp_path: Path):
+    (tmp_path / "LJ-deadbeef").mkdir()
+    (tmp_path / "LJ-1234567").mkdir()
+    (tmp_path / "not-a-job").mkdir()
+    _orphan_job_dir(tmp_path, job_id="LJ-ABCDEF01")
+    reports = list_orphan_reports(tmp_path)
+    assert len(reports) == 1
+    assert reports[0]["job_id"] == "LJ-ABCDEF01"
 
 
 @pytest.mark.asyncio

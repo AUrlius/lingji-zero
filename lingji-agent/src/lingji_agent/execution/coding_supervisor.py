@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import signal
 import subprocess
 import time
@@ -18,6 +19,8 @@ from lingji_agent.execution.hermes_session import argv_list
 JOBS_ROOT_SENTINEL = "$JOBS_ROOT"
 INPUT_NEEDLES = ("Waiting for input", "Please choose")
 _LOCK_NAME = ".coding_lock"
+_JOB_DIR_RE = re.compile(r"^LJ-[0-9A-F]{8,}$")
+_DEFAULT_HUNG_SEC = 180
 
 
 def normalize_git_url(url: str) -> str:
@@ -120,6 +123,71 @@ def _read_job_pid(job_dir: Path) -> int | None:
     if not pid_file.exists():
         return None
     return _read_lock_pid(pid_file)
+
+
+def _heartbeat_fresh(job_dir: Path, hung_sec: float) -> bool:
+    hb = job_dir / "logs" / "heartbeat"
+    if not hb.is_file():
+        return False
+    return (time.time() - hb.stat().st_mtime) <= float(hung_sec)
+
+
+def _job_still_running(job_dir: Path, hung_sec: float) -> bool:
+    pid = _read_job_pid(job_dir)
+    if pid is None or not pid_alive(pid):
+        return False
+    return _heartbeat_fresh(job_dir, hung_sec)
+
+
+def _read_job_meta(job_dir: Path) -> dict | None:
+    meta_path = job_dir / "meta.json"
+    if not meta_path.is_file():
+        return None
+    try:
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(meta, dict):
+        return None
+    job_id = meta.get("job_id")
+    step_id = meta.get("step_id")
+    if not job_id or not step_id:
+        return None
+    return meta
+
+
+def list_orphan_reports(jobs_root: Path, *, hung_sec: float = _DEFAULT_HUNG_SEC) -> list[dict]:
+    root = Path(jobs_root)
+    if not root.is_dir():
+        return []
+
+    reports: list[dict] = []
+    for entry in sorted(root.iterdir()):
+        if not entry.is_dir() or not _JOB_DIR_RE.match(entry.name):
+            continue
+        meta = _read_job_meta(entry)
+        if meta is None:
+            continue
+        if _job_still_running(entry, hung_sec):
+            continue
+        evidence = build_evidence(
+            runner=meta.get("runner", "cursor"),
+            workspace=entry / "workspace",
+            exit_code=None,
+            reason="executor_lost",
+            log_path=entry / "logs" / "run.log",
+            summary_path=entry / "out" / "summary.md",
+            questions_path=entry / "out" / "questions.md",
+        )
+        reports.append(
+            {
+                "job_id": meta["job_id"],
+                "step_id": meta["step_id"],
+                "reason": "executor_lost",
+                "evidence": evidence,
+            }
+        )
+    return reports
 
 
 def prepare_job_workspace(
