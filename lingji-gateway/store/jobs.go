@@ -533,13 +533,28 @@ func (s *JobStore) ReportStep(jobID, stepID string, in ReportStepInput) (*Job, e
 		return nil, fmt.Errorf("job_id and step_id required")
 	}
 	status := in.Status
-	if status != "completed" && status != "failed" {
-		return nil, fmt.Errorf("status must be completed or failed")
+	if status != "completed" && status != "failed" && status != "progress" {
+		return nil, fmt.Errorf("status must be completed, failed, or progress")
 	}
 	now := time.Now().UTC().Format(time.RFC3339)
 	ev, _ := json.Marshal(in.Evidence)
 	if ev == nil {
 		ev = []byte("{}")
+	}
+	if status == "progress" {
+		res, err := s.db.Exec(`
+			UPDATE fleet_job_steps SET evidence_json=?
+			WHERE step_id=? AND job_id=? AND status='dispatched'`,
+			string(ev), stepID, jobID)
+		if err != nil {
+			return nil, err
+		}
+		n, _ := res.RowsAffected()
+		if n == 0 {
+			return nil, fmt.Errorf("step not found")
+		}
+		_, _ = s.db.Exec(`UPDATE fleet_jobs SET updated_at=? WHERE job_id=?`, now, jobID)
+		return s.GetJob(jobID)
 	}
 	res, err := s.db.Exec(`
 		UPDATE fleet_job_steps SET status=?, evidence_json=?, error_text=?,

@@ -131,3 +131,55 @@ func TestJobStorePlaybookAndReport(t *testing.T) {
 		t.Fatalf("want completed got %s", done.Status)
 	}
 }
+
+func TestJobStoreReportProgressKeepsDispatched(t *testing.T) {
+	inbox, err := OpenInboxStore(t.TempDir() + "/inbox.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer inbox.Close()
+	js, err := NewJobStoreFromDB(inbox.DB())
+	if err != nil {
+		t.Fatal(err)
+	}
+	job, err := js.CreateJob(CreateJobInput{
+		UserID: "u", SchedulerAgentID: "lingji-laptop",
+		Intent: "s", Playbook: "agent.status",
+		Plan: map[string]any{"executor_id": "lingji-pc"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := js.DispatchStep(job.JobID, "", "lingji-pc"); err != nil {
+		t.Fatal(err)
+	}
+	mid, err := js.ReportStep(job.JobID, job.JobID+"-S1", ReportStepInput{
+		Status:   "progress",
+		Evidence: map[string]any{"log_tail": "still"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mid.Status == "completed" || mid.Status == "failed" {
+		t.Fatalf("job closed early: %s", mid.Status)
+	}
+	if mid.Steps[0].Status != "dispatched" {
+		t.Fatalf("step %s", mid.Steps[0].Status)
+	}
+	if mid.Steps[0].Evidence["log_tail"] != "still" {
+		t.Fatalf("evidence %+v", mid.Steps[0].Evidence)
+	}
+	if _, err := js.ReportStep(job.JobID, job.JobID+"-S1", ReportStepInput{Status: "nope"}); err == nil {
+		t.Fatal("want error for nope")
+	}
+	done, err := js.ReportStep(job.JobID, job.JobID+"-S1", ReportStepInput{
+		Status:   "completed",
+		Evidence: map[string]any{"stdout": "ok"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if done.Status != "completed" {
+		t.Fatalf("want completed got %s", done.Status)
+	}
+}
