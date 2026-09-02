@@ -92,11 +92,14 @@ class CodingConfig(BaseModel):
 
     jobs_root: str = ""
     start_cmd: list[str] = []
-    timeout_sec: int = 1800
-    timeout_hard_sec: int = 3600
-    hung_sec: int = 180
+    lead_cmd: list[str] = []
+    timeout_sec: int = 14400
+    timeout_hard_sec: int = 28800
+    hung_sec: int = 900
     heartbeat_sec: int = 15
     progress_sec: int = 30
+    lead_round_timeout_sec: int = 1200
+    lead_max_question_rounds: int = 3
     source_git_allowlist: list[str] = []
 
 

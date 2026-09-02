@@ -53,11 +53,14 @@ class TestConfigDefaults:
         cfg = AgentConfig()
         assert cfg.coding.jobs_root == ""
         assert cfg.coding.start_cmd == []
-        assert cfg.coding.timeout_sec == 1800
-        assert cfg.coding.timeout_hard_sec == 3600
-        assert cfg.coding.hung_sec == 180
+        assert cfg.coding.lead_cmd == []
+        assert cfg.coding.timeout_sec == 14400
+        assert cfg.coding.timeout_hard_sec == 28800
+        assert cfg.coding.hung_sec == 900
         assert cfg.coding.heartbeat_sec == 15
         assert cfg.coding.progress_sec == 30
+        assert cfg.coding.lead_round_timeout_sec == 1200
+        assert cfg.coding.lead_max_question_rounds == 3
         assert cfg.coding.source_git_allowlist == []
 
 
@@ -141,6 +144,8 @@ class TestYamlLoading:
             "coding": {
                 "jobs_root": "/mnt/d/LingjiJobs",
                 "start_cmd": ["/usr/bin/true"],
+                "lead_cmd": ["/usr/bin/true"],
+                "lead_round_timeout_sec": 99,
                 "timeout_sec": 600,
                 "source_git_allowlist": ["https://github.com/AUrlius/lingji-zero"],
             }
@@ -152,6 +157,8 @@ class TestYamlLoading:
             cfg = load_config(path)
             assert cfg.coding.jobs_root == "/mnt/d/LingjiJobs"
             assert cfg.coding.start_cmd == ["/usr/bin/true"]
+            assert cfg.coding.lead_cmd == ["/usr/bin/true"]
+            assert cfg.coding.lead_round_timeout_sec == 99
             assert cfg.coding.timeout_sec == 600
             assert isinstance(cfg.coding, CodingConfig)
         finally:
