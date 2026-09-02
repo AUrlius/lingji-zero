@@ -84,7 +84,7 @@ LJ-A1B2C3D4 失败：接收机未确认（…）。详情 GET /v1/jobs/LJ-A1B2C3
 | **4.0d-3** | Delegated HITL（范围内空城记代批，敏感升级用户 dock） | ✅ coded |
 | **4.0d-4a/4b** | 空城记机要接线（本机启停 + 右栏 loopback chat） | ✅ coded |
 | **4.0d-4（原设计）** | 上海 Hermes Permission Proxy | 未做 |
-| **4.0e** | `coding_run`：独立卷 + 无头 Cursor + 监工 + `job_invoke_coding` | ✅ coded（worktree；未合并 main） |
+| **4.0e** | `coding_run`：独立卷 + 无头 Cursor + 监工 + `job_invoke_coding` | ✅ coded（已合入 main） |
 
 ## Existing code anchors
 

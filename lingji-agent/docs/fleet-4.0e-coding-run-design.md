@@ -1,6 +1,6 @@
 # Fleet 4.0e — coding_run（工程摘要）
 
-> **状态**：**已编码**（工作树 `feat/4.0e-coding-run`，尚未合并 main；2026-09-02）  
+> **状态**：**已编码并合入 main**（2026-09-02）  
 
 > **正文**：[Sprint Fleet 4.0e — coding_run 监工与独立工作区](../../../../docs/sprints/第六阶段：编码实现与测试/Sprint Fleet 4.0e — coding_run 监工与独立工作区.md)
 
