@@ -1218,6 +1218,14 @@ async def main(config_path: str | None = None):
             job_id = p.get("job_id") or ""
             step_id = p.get("step_id") or ""
             playbook_id = p.get("playbook_id") or ""
+            if (playbook_id or "").startswith("coding."):
+                from lingji_agent.execution.coding_supervisor import handle_job_delegate
+                from lingji_agent.network.job_client import get_job, report_job_step
+
+                await handle_job_delegate(
+                    p, config.coding, report=report_job_step, get_job=get_job
+                )
+                return
             scope = p.get("approval_scope")
             from lingji_agent.execution.approval_scope import validate_playbook
             from lingji_agent.execution.playbook_runner import run_playbook
@@ -1325,6 +1333,7 @@ async def main(config_path: str | None = None):
             logger.info("可用工具: %s", ", ".join(tools) if tools else "（无）")
             asyncio.create_task(_flush_restart_report())
             asyncio.create_task(_recover_pending())
+            asyncio.create_task(_recover_orphan_coding())
 
         async def _flush_restart_report():
             from lingji_agent.execution.pending_job_report import (
@@ -1349,6 +1358,37 @@ async def main(config_path: str | None = None):
             if out.get("skipped"):
                 return
             logger.info("重启后补报: %s", out)
+
+        async def _recover_orphan_coding():
+            from lingji_agent.execution.coding_supervisor import recover_orphan_coding_jobs
+            from lingji_agent.network.job_client import report_job_step as _report_job_step
+
+            jobs_root = (config.coding.jobs_root or "").strip()
+            if not jobs_root:
+                return
+
+            async def _reporter(job_id, step_id, *, status, evidence=None, error=""):
+                return await _report_job_step(
+                    job_id,
+                    step_id,
+                    status=status,
+                    evidence=evidence,
+                    error=error,
+                    host=config.network.gateway_host,
+                    port=config.network.gateway_port,
+                    auth_token=config.network.auth_token,
+                )
+
+            items = await recover_orphan_coding_jobs(
+                Path(jobs_root),
+                report=_reporter,
+                hung_sec=config.coding.hung_sec,
+            )
+            if items:
+                logger.warning(
+                    "coding orphan recover: %d executor_lost",
+                    len(items),
+                )
 
         async def _recover_pending():
             sessions = get_pending_hitl_sessions_with_checkpoints(db)

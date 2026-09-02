@@ -495,3 +495,187 @@ async def run_coding_cli(
         exit_code=outcome.get("exit_code"),
         job_dir=job_dir,
     )
+
+
+def _empty_evidence(*, runner: str, reason: str) -> dict:
+    return build_evidence(
+        runner=runner,
+        workspace="",
+        exit_code=None,
+        reason=reason,
+        log_path="",
+        summary_path="",
+        questions_path="",
+    )
+
+
+async def handle_job_delegate(payload: dict, coding_cfg, *, report, get_job=None) -> None:
+    """JOB_DELEGATE 编码分支：coding.* 才处理，禁止走 run_playbook。"""
+    p = payload or {}
+    playbook_id = p.get("playbook_id") or ""
+    if not str(playbook_id).startswith("coding."):
+        return
+
+    job_id = p.get("job_id") or ""
+    step_id = p.get("step_id") or ""
+    runner = (p.get("runner") or "cursor").strip() or "cursor"
+    source_git = (p.get("source_git") or "").strip()
+    scope = p.get("approval_scope")
+    jobs_root = (getattr(coding_cfg, "jobs_root", None) or "").strip()
+    start_cmd = [str(x) for x in (getattr(coding_cfg, "start_cmd", None) or [])]
+
+    async def _fail(reason: str, *, error: str = "", evidence: dict | None = None) -> None:
+        await report(
+            job_id,
+            step_id,
+            status="failed",
+            evidence=evidence if evidence is not None else _empty_evidence(runner=runner, reason=reason),
+            error=error or reason,
+        )
+
+    if not jobs_root or not start_cmd:
+        await _fail(
+            "runner_missing",
+            error="coding runner missing: jobs_root 或 start_cmd 未配置",
+        )
+        return
+
+    brief = (p.get("brief") or "").strip()
+    if not brief and get_job is not None:
+        job = await get_job(job_id)
+        if isinstance(job, dict):
+            plan = job.get("plan") if isinstance(job.get("plan"), dict) else {}
+            brief = str(plan.get("brief") or job.get("brief") or "").strip()
+    if not brief:
+        await _fail("brief_missing")
+        return
+
+    raw_timeout = p.get("timeout_sec")
+    try:
+        if raw_timeout in (None, ""):
+            timeout_sec = int(coding_cfg.timeout_sec)
+        else:
+            timeout_sec = int(raw_timeout)
+    except (TypeError, ValueError):
+        timeout_sec = int(coding_cfg.timeout_sec)
+    if timeout_sec <= 0:
+        timeout_sec = int(coding_cfg.timeout_sec)
+    hard = int(getattr(coding_cfg, "timeout_hard_sec", 3600) or 3600)
+    timeout_sec = min(timeout_sec, hard)
+
+    from lingji_agent.execution.approval_scope import validate_coding_scope
+
+    ok, why = validate_coding_scope(
+        scope if isinstance(scope, dict) else None,
+        playbook_id=playbook_id,
+        runner=runner,
+        jobs_root=jobs_root,
+        source_git=source_git,
+    )
+    if not ok:
+        await _fail("scope", error=why)
+        return
+
+    allowlist = list(getattr(coding_cfg, "source_git_allowlist", None) or [])
+    if source_git and not git_url_allowed(source_git, allowlist):
+        await _fail("scope", error="source_git not allowed")
+        return
+
+    root = Path(jobs_root)
+    lock_pid = os.getpid()
+    if not try_acquire_lock(root, lock_pid):
+        await _fail("executor_busy")
+        return
+
+    try:
+        job_dir, prep_reason = prepare_job_workspace(
+            jobs_root=root,
+            job_id=job_id,
+            step_id=step_id,
+            brief=brief,
+            runner=runner,
+            timeout_sec=timeout_sec,
+            source_git=source_git,
+            allowlist=allowlist,
+        )
+        if job_dir is None:
+            reason = prep_reason or "scope"
+            ev_reason = "scope" if reason == "source_git not allowed" else reason
+            await _fail(ev_reason, error=reason)
+            return
+
+        def _on_progress(evidence: dict) -> None:
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                return
+            loop.create_task(
+                report(job_id, step_id, status="progress", evidence=evidence)
+            )
+
+        result = await run_coding_cli(
+            start_cmd=start_cmd,
+            job_dir=job_dir,
+            timeout_sec=timeout_sec,
+            hung_sec=getattr(coding_cfg, "hung_sec", _DEFAULT_HUNG_SEC),
+            heartbeat_sec=getattr(coding_cfg, "heartbeat_sec", 15),
+            progress_sec=getattr(coding_cfg, "progress_sec", 30),
+            on_progress=_on_progress,
+        )
+        reason = str(result.get("reason") or "")
+        evidence = result.get("evidence") or {}
+        if reason == "ok":
+            await report(
+                job_id,
+                step_id,
+                status="completed",
+                evidence=evidence,
+                error="",
+            )
+        else:
+            await report(
+                job_id,
+                step_id,
+                status="failed",
+                evidence=evidence,
+                error=reason or "crash",
+            )
+    finally:
+        release_lock(root, lock_pid)
+
+
+async def recover_orphan_coding_jobs(
+    jobs_root: Path,
+    *,
+    report,
+    hung_sec: float = _DEFAULT_HUNG_SEC,
+    kill=None,
+) -> list[dict]:
+    """Startup recover: report executor_lost. Kill tree only if heartbeat is stale.
+
+    Residual (first cut): live pid + fresh heartbeat is skipped even when this
+    process is not the parent — no reattach supervise, to avoid double-supervising.
+    """
+    kill_fn = kill if kill is not None else kill_process_tree
+    if not jobs_root:
+        return []
+    root = Path(jobs_root)
+    if not root.is_dir():
+        return []
+
+    items = list_orphan_reports(root, hung_sec=hung_sec)
+    for item in items:
+        job_dir = root / str(item["job_id"])
+        if not _heartbeat_fresh(job_dir, hung_sec):
+            pid = _read_job_pid(job_dir)
+            if pid is not None and pid_alive(pid):
+                kill_fn(pid)
+        await report(
+            item["job_id"],
+            item["step_id"],
+            status="failed",
+            error="executor_lost",
+            evidence=item.get("evidence") or {},
+        )
+    return items
+
