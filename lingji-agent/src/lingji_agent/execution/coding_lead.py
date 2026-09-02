@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
@@ -111,3 +112,90 @@ def write_executor_prompt(job_dir: Path) -> Path:
     dest = job / "executor_prompt.md"
     dest.write_text(content, encoding="utf-8")
     return dest
+
+
+def _early_fail(reason: str) -> dict:
+    return {
+        "ok": False,
+        "reason": reason,
+        "exit_code": None,
+        "evidence": {"reason": reason},
+    }
+
+
+async def run_coding_with_lead(
+    *,
+    job_dir: Path,
+    brief: str,
+    lead: LeadRuntime,
+    run_cli,
+    start_cmd: list[str],
+    timeout_sec: float,
+    hung_sec: float,
+    heartbeat_sec: float,
+    progress_sec: float,
+    on_progress=None,
+    lead_round_timeout_sec: float = 1200,
+    lead_max_question_rounds: int = 3,
+    clock=None,
+) -> dict:
+    job_dir = Path(job_dir)
+    now = clock if clock is not None else time.monotonic
+    deadline = now() + float(timeout_sec)
+
+    def remaining() -> float:
+        return deadline - now()
+
+    rem = remaining()
+    if rem <= 0:
+        return _early_fail("timeout")
+
+    lead_round = min(float(lead_round_timeout_sec), rem)
+    plan_decision = await lead.propose_plan(
+        job_dir=job_dir, brief=brief, timeout_sec=lead_round
+    )
+    if not (plan_decision.ok and plan_decision.text.strip()):
+        reason = plan_decision.reason or "lead_plan_missing"
+        return _early_fail(reason)
+
+    write_lead_artifact(job_dir, "plan.md", plan_decision.text)
+    write_executor_prompt(job_dir)
+
+    questions_seen = 0
+    while True:
+        rem = remaining()
+        if rem <= 0:
+            return _early_fail("timeout")
+
+        result = await run_cli(
+            job_dir=job_dir,
+            start_cmd=start_cmd,
+            timeout_sec=rem,
+            hung_sec=hung_sec,
+            heartbeat_sec=heartbeat_sec,
+            progress_sec=progress_sec,
+            on_progress=on_progress,
+        )
+        if result.get("reason") != "needs_input":
+            return result
+
+        questions_seen += 1
+        if questions_seen > lead_max_question_rounds:
+            return result
+
+        rem = remaining()
+        if rem <= 0:
+            return _early_fail("timeout")
+
+        q_path = job_dir / "out" / "questions.md"
+        questions = q_path.read_text(encoding="utf-8") if q_path.exists() else ""
+        decide_timeout = min(float(lead_round_timeout_sec), rem)
+        decision = await lead.decide(
+            job_dir=job_dir, questions=questions, timeout_sec=decide_timeout
+        )
+        if not decision.ok:
+            reason = decision.reason or "needs_input"
+            return _early_fail(reason)
+
+        write_lead_artifact(job_dir, "decisions.md", decision.text, append=True)
+        write_executor_prompt(job_dir)

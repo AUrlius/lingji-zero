@@ -1,4 +1,5 @@
 from pathlib import Path
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -7,9 +8,31 @@ from lingji_agent.execution.coding_lead import (
     LeadDecision,
     compose_executor_prompt,
     lead_cmd_is_safe,
+    run_coding_with_lead,
     write_executor_prompt,
     write_lead_artifact,
 )
+
+
+def _ok_cli(job_dir):
+    return {
+        "ok": True,
+        "reason": "ok",
+        "exit_code": 0,
+        "evidence": {"reason": "ok", "runner": "cursor"},
+    }
+
+
+def _need_cli(job_dir):
+    q = job_dir / "out" / "questions.md"
+    q.parent.mkdir(parents=True, exist_ok=True)
+    q.write_text("Please choose A or B", encoding="utf-8")
+    return {
+        "ok": False,
+        "reason": "needs_input",
+        "exit_code": -1,
+        "evidence": {"reason": "needs_input"},
+    }
 
 
 def test_lead_cmd_rejects_force_and_yolo():
@@ -77,3 +100,155 @@ async def test_fake_lead_runtime_records_timeouts(tmp_path: Path):
     assert not (tmp_path / "workspace").exists() or not any(
         (tmp_path / "workspace").iterdir()
     )
+
+
+@pytest.mark.asyncio
+async def test_plan_written_before_executor(tmp_path: Path):
+    job = tmp_path / "LJ-A8600691"
+    job.mkdir()
+    (job / "brief.md").write_text("write hello", encoding="utf-8")
+    order = []
+
+    async def run_cli(**kwargs):
+        order.append("cli")
+        assert (job / "lead" / "plan.md").read_text(encoding="utf-8") == "create hello.txt"
+        assert "create hello.txt" in (job / "executor_prompt.md").read_text(encoding="utf-8")
+        assert not (job / "workspace" / "plan.md").exists()
+        return _ok_cli(job)
+
+    lead = FakeLeadRuntime(plan="create hello.txt")
+    result = await run_coding_with_lead(
+        job_dir=job,
+        brief="write hello",
+        lead=lead,
+        run_cli=run_cli,
+        start_cmd=["/usr/bin/true"],
+        timeout_sec=100,
+        hung_sec=90,
+        heartbeat_sec=15,
+        progress_sec=30,
+        lead_round_timeout_sec=20,
+    )
+    assert result["reason"] == "ok"
+    assert order == ["cli"]
+    assert lead.propose_timeouts == [20]
+
+
+@pytest.mark.asyncio
+async def test_empty_plan_skips_executor(tmp_path: Path):
+    job = tmp_path / "LJ-A8600691"
+    job.mkdir()
+    run_cli = AsyncMock()
+    result = await run_coding_with_lead(
+        job_dir=job,
+        brief="x",
+        lead=FakeLeadRuntime(plan=""),
+        run_cli=run_cli,
+        start_cmd=["/usr/bin/true"],
+        timeout_sec=50,
+        hung_sec=90,
+        heartbeat_sec=15,
+        progress_sec=30,
+    )
+    assert result["ok"] is False
+    assert result["reason"] == "lead_plan_missing"
+    run_cli.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_three_question_rounds_then_ok(tmp_path: Path):
+    job = tmp_path / "LJ-A8600691"
+    job.mkdir()
+    (job / "brief.md").write_text("b", encoding="utf-8")
+    n = {"cli": 0}
+
+    async def run_cli(**kwargs):
+        n["cli"] += 1
+        if n["cli"] <= 3:
+            return _need_cli(job)
+        return _ok_cli(job)
+
+    lead = FakeLeadRuntime(
+        plan="p",
+        decisions=[
+            LeadDecision(ok=True, text="A"),
+            LeadDecision(ok=True, text="B"),
+            LeadDecision(ok=True, text="C"),
+        ],
+    )
+    result = await run_coding_with_lead(
+        job_dir=job,
+        brief="b",
+        lead=lead,
+        run_cli=run_cli,
+        start_cmd=["/usr/bin/true"],
+        timeout_sec=100,
+        hung_sec=90,
+        heartbeat_sec=15,
+        progress_sec=30,
+    )
+    assert result["reason"] == "ok"
+    assert n["cli"] == 4
+    assert lead.decide_calls == 3
+    dec = (job / "lead" / "decisions.md").read_text(encoding="utf-8")
+    assert "A" in dec and "C" in dec
+
+
+@pytest.mark.asyncio
+async def test_fourth_question_fails_needs_input(tmp_path: Path):
+    job = tmp_path / "LJ-A8600691"
+    job.mkdir()
+    (job / "brief.md").write_text("b", encoding="utf-8")
+
+    async def run_cli(**kwargs):
+        return _need_cli(job)
+
+    lead = FakeLeadRuntime(
+        plan="p",
+        decisions=[LeadDecision(ok=True, text=x) for x in "ABC"],
+    )
+    result = await run_coding_with_lead(
+        job_dir=job,
+        brief="b",
+        lead=lead,
+        run_cli=run_cli,
+        start_cmd=["/usr/bin/true"],
+        timeout_sec=100,
+        hung_sec=90,
+        heartbeat_sec=15,
+        progress_sec=30,
+    )
+    assert result["ok"] is False
+    assert result["reason"] == "needs_input"
+    assert lead.decide_calls == 3
+
+
+@pytest.mark.asyncio
+async def test_lead_reject_stops_without_rerun(tmp_path: Path):
+    job = tmp_path / "LJ-A8600691"
+    job.mkdir()
+    (job / "brief.md").write_text("b", encoding="utf-8")
+    n = {"cli": 0}
+
+    async def run_cli(**kwargs):
+        n["cli"] += 1
+        return _need_cli(job)
+
+    lead = FakeLeadRuntime(
+        plan="p",
+        decisions=[LeadDecision(ok=False, text="", reason="needs_input")],
+    )
+    result = await run_coding_with_lead(
+        job_dir=job,
+        brief="b",
+        lead=lead,
+        run_cli=run_cli,
+        start_cmd=["/usr/bin/true"],
+        timeout_sec=100,
+        hung_sec=90,
+        heartbeat_sec=15,
+        progress_sec=30,
+    )
+    assert result["reason"] == "needs_input"
+    assert n["cli"] == 1
+    assert lead.decide_calls == 1
