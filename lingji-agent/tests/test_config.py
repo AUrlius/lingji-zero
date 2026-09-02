@@ -9,6 +9,7 @@ import yaml
 
 from lingji_agent.foundation.config import (
     AgentConfig,
+    CodingConfig,
     NetworkConfig,
     LLMConfig,
     SecurityConfig,
@@ -47,6 +48,17 @@ class TestConfigDefaults:
         assert cfg.hermes_session.start_cmd == []
         assert cfg.hermes_session.chat_url == ""
         assert cfg.hermes_session.process_names == ["hermes", "openclaw"]
+
+    def test_default_coding(self):
+        cfg = AgentConfig()
+        assert cfg.coding.jobs_root == ""
+        assert cfg.coding.start_cmd == []
+        assert cfg.coding.timeout_sec == 1800
+        assert cfg.coding.timeout_hard_sec == 3600
+        assert cfg.coding.hung_sec == 180
+        assert cfg.coding.heartbeat_sec == 15
+        assert cfg.coding.progress_sec == 30
+        assert cfg.coding.source_git_allowlist == []
 
 
 class TestYamlLoading:
@@ -121,6 +133,27 @@ class TestYamlLoading:
             assert cfg.hermes_session.start_cmd == ["hermes", "gateway"]
             assert cfg.hermes_session.chat_url == "http://127.0.0.1:18789/v1/chat"
             assert isinstance(cfg.hermes_session, HermesSessionConfig)
+        finally:
+            os.unlink(path)
+
+    def test_coding_yaml(self):
+        yaml_data = {
+            "coding": {
+                "jobs_root": "/mnt/d/LingjiJobs",
+                "start_cmd": ["/usr/bin/true"],
+                "timeout_sec": 600,
+                "source_git_allowlist": ["https://github.com/AUrlius/lingji-zero"],
+            }
+        }
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+            yaml.dump(yaml_data, f)
+            path = f.name
+        try:
+            cfg = load_config(path)
+            assert cfg.coding.jobs_root == "/mnt/d/LingjiJobs"
+            assert cfg.coding.start_cmd == ["/usr/bin/true"]
+            assert cfg.coding.timeout_sec == 600
+            assert isinstance(cfg.coding, CodingConfig)
         finally:
             os.unlink(path)
 

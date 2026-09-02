@@ -87,6 +87,19 @@ class HermesSessionConfig(BaseModel):
     start_wait_sec: float = 3.0
 
 
+class CodingConfig(BaseModel):
+    """青铜剑编码监工。argv 列表禁止拼 shell。"""
+
+    jobs_root: str = ""
+    start_cmd: list[str] = []
+    timeout_sec: int = 1800
+    timeout_hard_sec: int = 3600
+    hung_sec: int = 180
+    heartbeat_sec: int = 15
+    progress_sec: int = 30
+    source_git_allowlist: list[str] = []
+
+
 class AgentConfig(BaseModel):
     network: NetworkConfig = NetworkConfig()
     llm: LLMConfig = LLMConfig()
@@ -95,6 +108,7 @@ class AgentConfig(BaseModel):
     observability: ObservabilityConfig = ObservabilityConfig()
     scheduler: SchedulerConfig = SchedulerConfig()
     hermes_session: HermesSessionConfig = HermesSessionConfig()
+    coding: CodingConfig = CodingConfig()
 
 
 # ── 环境变量映射 ──────────────────────────────────────────

@@ -68,3 +68,13 @@ hermes_session:
   chat_url: ""           # 有本机 HTTP 会话接口才填；空则在线但通道未接通
   chat_timeout_sec: 60
   start_wait_sec: 3
+# 编码监工（仅青铜剑填写；空城记保持 start_cmd / jobs_root 为空）
+coding:
+  jobs_root: ""
+  start_cmd: []
+  timeout_sec: 1800
+  timeout_hard_sec: 3600
+  hung_sec: 180
+  heartbeat_sec: 15
+  progress_sec: 30
+  source_git_allowlist: []
