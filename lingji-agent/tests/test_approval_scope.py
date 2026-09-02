@@ -6,11 +6,14 @@ from lingji_agent.execution.approval_scope import (
     ESCALATION_SCHEDULER,
     ESCALATION_USER,
     classify_hitl,
+    default_coding_scope,
     default_scope,
     pick_active_job_for_executor,
+    validate_coding_scope,
     validate_path,
     validate_playbook,
 )
+from lingji_agent.execution.coding_supervisor import JOBS_ROOT_SENTINEL
 
 NOW = datetime(2026, 8, 31, 9, 0, 0, tzinfo=timezone.utc)
 
@@ -143,6 +146,45 @@ class TestClassifyHitl:
     def test_unknown_tool_is_user(self):
         scope = default_scope("agent.status", now=NOW)
         assert classify_hitl(scope, "move_file", {}, now=NOW) == ESCALATION_USER
+
+
+class TestCodingScope:
+    def test_default_coding_scope(self):
+        scope = default_coding_scope(timeout_sec=1800, now=NOW)
+        assert scope["playbooks"] == ["coding.cursor"]
+        assert scope["runners"] == ["cursor"]
+        assert scope["allowed_paths"] == [JOBS_ROOT_SENTINEL]
+        assert scope["auto_approve_tier0"] is False
+        ok, reason = validate_coding_scope(
+            scope,
+            playbook_id="coding.cursor",
+            runner="cursor",
+            jobs_root="/mnt/d/LingjiJobs",
+            now=NOW,
+        )
+        assert ok and reason == ""
+
+    def test_coding_scope_rejects_runner_and_git(self):
+        scope = default_coding_scope(
+            source_git="https://github.com/AUrlius/lingji-zero", now=NOW
+        )
+        ok, reason = validate_coding_scope(
+            scope,
+            playbook_id="coding.cursor",
+            runner="claude",
+            jobs_root="/mnt/d/LingjiJobs",
+            now=NOW,
+        )
+        assert not ok and reason == "runner not in approval_scope"
+        ok, reason = validate_coding_scope(
+            scope,
+            playbook_id="coding.cursor",
+            runner="cursor",
+            jobs_root="/mnt/d/LingjiJobs",
+            source_git="https://evil.example/r",
+            now=NOW,
+        )
+        assert not ok and reason == "source_git not in approval_scope"
 
 
 class TestPickActiveJob:

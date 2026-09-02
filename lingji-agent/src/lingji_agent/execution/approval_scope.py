@@ -9,8 +9,12 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+from lingji_agent.execution.coding_supervisor import JOBS_ROOT_SENTINEL, normalize_git_url
+
 _DEFAULT_ALLOWED_PATHS = ["/mnt/e/LingjiPlan/LingjiZero"]
 _SENSITIVE_EXACT = ("~/.ssh", "/root/.ssh")
+PLAYBOOK_CODING_CURSOR = "coding.cursor"
+_CODING_RUNNER_CURSOR = "cursor"
 
 
 def _as_utc(now: datetime | None) -> datetime:
@@ -70,6 +74,71 @@ def validate_playbook(
     playbooks = scope.get("playbooks") or []
     if playbook_id not in playbooks:
         return False, "playbook not in approval_scope"
+    return True, ""
+
+
+def default_coding_scope(
+    *,
+    jobs_root_sentinel: str = JOBS_ROOT_SENTINEL,
+    timeout_sec: int = 1800,
+    source_git: str = "",
+    runner: str = "cursor",
+    now: datetime | None = None,
+) -> dict:
+    """Default coding_run 预授权：coding.cursor + jobs_root 哨兵路径。"""
+    now_utc = _as_utc(now)
+    expires = now_utc + timedelta(seconds=timeout_sec) + timedelta(minutes=15)
+    return {
+        "expires_at": _rfc3339_utc(expires),
+        "playbooks": [PLAYBOOK_CODING_CURSOR],
+        "runners": [runner],
+        "allowed_paths": [jobs_root_sentinel],
+        "max_timeout_sec": timeout_sec,
+        "source_git": source_git or "",
+        "auto_approve_tier0": False,
+    }
+
+
+def validate_coding_scope(
+    scope: dict | None,
+    *,
+    playbook_id: str,
+    runner: str,
+    jobs_root: str,
+    source_git: str = "",
+    now: datetime | None = None,
+) -> tuple[bool, str]:
+    if not scope:
+        return False, "approval_scope missing"
+    now_utc = _as_utc(now)
+    expires = _parse_expires_at(str(scope.get("expires_at") or ""))
+    if expires is None or expires < now_utc:
+        return False, "approval_scope expired"
+    playbooks = scope.get("playbooks") or []
+    if playbook_id != PLAYBOOK_CODING_CURSOR or playbook_id not in playbooks:
+        return False, "playbook not in approval_scope"
+    runners = scope.get("runners")
+    if not isinstance(runners, list):
+        runners = []
+    if runner != _CODING_RUNNER_CURSOR or runner not in runners:
+        return False, "runner not in approval_scope"
+    if not (jobs_root or "").strip():
+        return False, "jobs_root empty"
+    root = jobs_root.strip()
+    allowed_raw: list[Any] = scope.get("allowed_paths") or []
+    allowed: list[str] = []
+    for prefix in allowed_raw:
+        if not isinstance(prefix, str):
+            continue
+        allowed.append(prefix.replace(JOBS_ROOT_SENTINEL, root))
+    if not any(_path_under_prefix(root, p) for p in allowed):
+        return False, "path not in approval_scope"
+    plan_git = (source_git or "").strip()
+    scope_git = str(scope.get("source_git") or "").strip()
+    if scope_git and not plan_git:
+        return False, "source_git not in approval_scope"
+    if plan_git and scope_git and normalize_git_url(plan_git) != normalize_git_url(scope_git):
+        return False, "source_git not in approval_scope"
     return True, ""
 
 
