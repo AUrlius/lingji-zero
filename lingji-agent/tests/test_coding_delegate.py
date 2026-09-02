@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import subprocess
@@ -128,6 +129,95 @@ async def test_fake_success_reports_completed(tmp_path: Path):
     assert (tmp_path / "LJ-ABCD1234" / "brief.md").read_text(encoding="utf-8") == (
         "write hello.txt"
     )
+
+
+@pytest.mark.asyncio
+async def test_handle_job_delegate_second_job_executor_busy(tmp_path: Path):
+    """Second overlapping JOB_DELEGATE must fail immediately, not queue."""
+    started = asyncio.Event()
+    release = asyncio.Event()
+    cli_calls = 0
+    reports: list[tuple[str, str, str, str]] = []
+
+    async def report(job_id, step_id, *, status, evidence=None, error=""):
+        reports.append(
+            (job_id, status, str(error or ""), str((evidence or {}).get("reason") or ""))
+        )
+
+    async def fake_cli(**kwargs):
+        nonlocal cli_calls
+        cli_calls += 1
+        started.set()
+        await release.wait()
+        return _ok_cli_result(kwargs.get("job_dir"))
+
+    with patch(
+        "lingji_agent.execution.coding_supervisor.run_coding_cli",
+        fake_cli,
+    ):
+        first = asyncio.create_task(
+            handle_job_delegate(
+                _payload(job_id="LJ-AAAA0001"),
+                _cfg(tmp_path),
+                report=report,
+            )
+        )
+        await asyncio.wait_for(started.wait(), timeout=2)
+        second = asyncio.create_task(
+            handle_job_delegate(
+                _payload(job_id="LJ-BBBB0001"),
+                _cfg(tmp_path),
+                report=report,
+            )
+        )
+        done, _pending = await asyncio.wait({second}, timeout=0.5)
+        assert second in done, "second job queued behind first instead of failing immediately"
+        await second
+        release.set()
+        await first
+
+    assert cli_calls == 1
+    by_id = {job_id: (status, error, reason) for job_id, status, error, reason in reports}
+    assert by_id["LJ-AAAA0001"][0] == "completed"
+    assert by_id["LJ-BBBB0001"][0] == "failed"
+    assert by_id["LJ-BBBB0001"][2] == "executor_busy"
+    assert not (tmp_path / ".coding_lock").exists()
+
+
+@pytest.mark.asyncio
+async def test_progress_reports_are_awaited_before_delegate_returns(tmp_path: Path):
+    """create_task progress reports must be retained and finished before concluding."""
+    progress_started = asyncio.Event()
+    progress_release = asyncio.Event()
+    statuses: list[str] = []
+
+    async def report(job_id, step_id, *, status, evidence=None, error=""):
+        statuses.append(status)
+        if status == "progress":
+            progress_started.set()
+            await progress_release.wait()
+
+    async def fake_cli(*, on_progress, job_dir, **kwargs):
+        on_progress({"reason": "progress"})
+        await progress_started.wait()
+        return _ok_cli_result(job_dir)
+
+    with patch(
+        "lingji_agent.execution.coding_supervisor.run_coding_cli",
+        fake_cli,
+    ):
+        delegate = asyncio.create_task(
+            handle_job_delegate(_payload(), _cfg(tmp_path), report=report)
+        )
+        await asyncio.wait_for(progress_started.wait(), timeout=2)
+        await asyncio.sleep(0.05)
+        assert not delegate.done(), "delegate returned before progress report finished"
+        assert "completed" not in statuses
+        progress_release.set()
+        await asyncio.wait_for(delegate, timeout=2)
+
+    assert statuses[0] == "progress"
+    assert statuses[-1] == "completed"
 
 
 @pytest.mark.asyncio

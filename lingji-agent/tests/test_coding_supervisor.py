@@ -90,10 +90,12 @@ def test_brief_missing_does_not_create_dir(tmp_path: Path):
 
 
 def test_second_lock_fails(tmp_path: Path):
-    assert try_acquire_lock(tmp_path, os.getpid()) is True
-    assert try_acquire_lock(tmp_path, os.getpid() + 1) is False
-    release_lock(tmp_path, os.getpid())
-    assert try_acquire_lock(tmp_path, os.getpid() + 1) is True
+    pid = os.getpid()
+    assert try_acquire_lock(tmp_path, pid) is True
+    assert try_acquire_lock(tmp_path, pid) is False
+    assert try_acquire_lock(tmp_path, pid + 1) is False
+    release_lock(tmp_path, pid)
+    assert try_acquire_lock(tmp_path, pid + 1) is True
 
 
 def test_dead_pid_lock_can_be_stolen(tmp_path: Path):

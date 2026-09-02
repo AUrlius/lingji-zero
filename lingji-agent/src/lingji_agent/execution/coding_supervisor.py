@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import re
 import signal
@@ -15,6 +16,8 @@ from pathlib import Path
 from urllib.parse import urlparse, urlunparse
 
 from lingji_agent.execution.hermes_session import argv_list
+
+logger = logging.getLogger(__name__)
 
 JOBS_ROOT_SENTINEL = "$JOBS_ROOT"
 INPUT_NEEDLES = ("Waiting for input", "Please choose")
@@ -79,15 +82,60 @@ def _read_lock_pid(path: Path) -> int | None:
         return None
 
 
+_LOCK_EXCL_FLAGS = os.O_CREAT | os.O_EXCL | os.O_WRONLY
+_claim_lock = asyncio.Lock()
+_coding_busy = False
+
+
+def _create_lock_file(lock: Path) -> int | None:
+    try:
+        return os.open(lock, _LOCK_EXCL_FLAGS)
+    except FileExistsError:
+        return None
+
+
 def try_acquire_lock(jobs_root: Path, pid: int) -> bool:
+    """Acquire jobs_root/.coding_lock. Any live holder (including this pid) is busy."""
     root = Path(jobs_root)
     root.mkdir(parents=True, exist_ok=True)
     lock = _lock_path(root)
-    existing = _read_lock_pid(lock) if lock.exists() else None
-    if existing is not None and existing != pid and pid_alive(existing):
-        return False
-    lock.write_text(str(pid), encoding="utf-8")
+    fd = _create_lock_file(lock)
+    if fd is None:
+        existing = _read_lock_pid(lock)
+        if existing is not None and pid_alive(existing):
+            return False
+        try:
+            lock.unlink()
+        except OSError:
+            return False
+        fd = _create_lock_file(lock)
+        if fd is None:
+            return False
+    try:
+        os.write(fd, str(pid).encode("utf-8"))
+    finally:
+        os.close(fd)
     return True
+
+
+async def _claim_executor(jobs_root: Path, pid: int) -> bool:
+    """Check-and-set only. Caller must run the CLI outside this gate."""
+    global _coding_busy
+    async with _claim_lock:
+        if _coding_busy:
+            return False
+        if not try_acquire_lock(jobs_root, pid):
+            return False
+        _coding_busy = True
+        return True
+
+
+def _release_executor(jobs_root: Path, pid: int) -> None:
+    global _coding_busy
+    try:
+        release_lock(jobs_root, pid)
+    finally:
+        _coding_busy = False
 
 
 def release_lock(jobs_root: Path, pid: int) -> None:
@@ -583,7 +631,7 @@ async def handle_job_delegate(payload: dict, coding_cfg, *, report, get_job=None
 
     root = Path(jobs_root)
     lock_pid = os.getpid()
-    if not try_acquire_lock(root, lock_pid):
+    if not await _claim_executor(root, lock_pid):
         await _fail("executor_busy")
         return
 
@@ -604,14 +652,26 @@ async def handle_job_delegate(payload: dict, coding_cfg, *, report, get_job=None
             await _fail(ev_reason, error=reason)
             return
 
+        progress_tasks: set[asyncio.Task] = set()
+
+        def _on_progress_done(task: asyncio.Task) -> None:
+            progress_tasks.discard(task)
+            if task.cancelled():
+                return
+            exc = task.exception()
+            if exc is not None:
+                logger.warning("coding progress report failed: %s", exc)
+
         def _on_progress(evidence: dict) -> None:
             try:
                 loop = asyncio.get_running_loop()
             except RuntimeError:
                 return
-            loop.create_task(
+            task = loop.create_task(
                 report(job_id, step_id, status="progress", evidence=evidence)
             )
+            progress_tasks.add(task)
+            task.add_done_callback(_on_progress_done)
 
         result = await run_coding_cli(
             start_cmd=start_cmd,
@@ -622,6 +682,9 @@ async def handle_job_delegate(payload: dict, coding_cfg, *, report, get_job=None
             progress_sec=getattr(coding_cfg, "progress_sec", 30),
             on_progress=_on_progress,
         )
+        pending = list(progress_tasks)
+        if pending:
+            await asyncio.gather(*pending, return_exceptions=True)
         reason = str(result.get("reason") or "")
         evidence = result.get("evidence") or {}
         if reason == "ok":
@@ -641,7 +704,7 @@ async def handle_job_delegate(payload: dict, coding_cfg, *, report, get_job=None
                 error=reason or "crash",
             )
     finally:
-        release_lock(root, lock_pid)
+        _release_executor(root, lock_pid)
 
 
 async def recover_orphan_coding_jobs(
