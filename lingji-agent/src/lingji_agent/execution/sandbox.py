@@ -197,6 +197,7 @@ class NativeSandbox(BaseSandbox):
         # 命令白名单检查
         ok, reason = validate_command(cmd_parts)
         if not ok:
+            _note_sandbox_blocked()
             return ExecutionResult(
                 exit_code=-1,
                 stdout="",
@@ -210,6 +211,7 @@ class NativeSandbox(BaseSandbox):
                 continue
             if "/" in arg and not arg.startswith("http"):
                 if not validate_path(arg):
+                    _note_sandbox_blocked()
                     return ExecutionResult(
                         exit_code=-1,
                         stdout="",
@@ -219,6 +221,7 @@ class NativeSandbox(BaseSandbox):
 
         # cwd 检查
         if cwd and not validate_path(cwd):
+            _note_sandbox_blocked()
             return ExecutionResult(
                 exit_code=-1,
                 stdout="",
@@ -322,6 +325,7 @@ class DockerSandbox(BaseSandbox):
             cmd_parts = list(command)
 
         if not cmd_parts:
+            _note_sandbox_blocked()
             return ExecutionResult(exit_code=-1, stdout="", stderr="空命令", duration_ms=0)
 
         workdir = cwd or os.getcwd()
@@ -400,6 +404,7 @@ class FailClosedSandbox(BaseSandbox):
         env: dict[str, str] | None = None,
         limits: ResourceLimits | None = None,
     ) -> ExecutionResult:
+        _note_sandbox_blocked()
         return ExecutionResult(
             exit_code=-1,
             stdout="",
@@ -412,6 +417,12 @@ class FailClosedSandbox(BaseSandbox):
 
 
 # ── Factory ───────────────────────────────────────────────
+
+def _note_sandbox_blocked() -> None:
+    from lingji_agent.observability.decision_trace import note_tool_blocked
+
+    note_tool_blocked(sandbox=True, tool="execute_command")
+
 
 def create_sandbox(*, force_docker: bool | None = None) -> BaseSandbox:
     """自动选择可用沙箱。

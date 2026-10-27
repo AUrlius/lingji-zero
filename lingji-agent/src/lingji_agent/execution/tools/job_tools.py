@@ -149,6 +149,10 @@ async def job_invoke(
     from lingji_agent.execution.playbook_runner import PLAYBOOK_SCRIPTS
 
     pb = (playbook_id or "").strip()
+    from lingji_agent.observability.decision_trace import note_skill
+
+    if pb:
+        note_skill(pb)
     if pb not in PLAYBOOK_SCRIPTS:
         return {"error": f"未知 playbook: {pb}，可选: {', '.join(PLAYBOOK_SCRIPTS)}"}
     executor = (executor_id or "lingji-pc").strip()
@@ -219,7 +223,9 @@ async def job_invoke_coding(
         PLAYBOOK_CODING_CURSOR,
         default_coding_scope,
     )
+    from lingji_agent.observability.decision_trace import note_skill
 
+    note_skill(PLAYBOOK_CODING_CURSOR)
     brief_text = (brief or "").strip()
     if not brief_text:
         return {"error": "brief 不能为空"}

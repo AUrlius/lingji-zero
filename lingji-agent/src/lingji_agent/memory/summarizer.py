@@ -201,6 +201,18 @@ async def run_summarization(
 
     usage = response.get("usage") or {}
     usage_tokens = int(usage.get("total_tokens") or 0)
+    from lingji_agent.observability.decision_trace import (
+        note_context_compressed,
+        note_memory,
+        note_tokens,
+    )
+
+    note_context_compressed()
+    note_memory("kept")
+    if ids_to_delete:
+        note_memory("dropped")
+    if usage_tokens:
+        note_tokens(usage_tokens)
     logger.info(
         "summarize_complete deleted=%d semantic_id=%s usage_tokens=%d",
         len(ids_to_delete),
