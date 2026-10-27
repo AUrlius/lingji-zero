@@ -200,6 +200,22 @@ class TestEnvOverride:
         finally:
             del os.environ["LINGJI_GATEWAY_PORT"]
 
+    def test_langsmith_switch_defaults_off(self, monkeypatch):
+        monkeypatch.delenv("LINGJI_LANGSMITH_ENABLED", raising=False)
+        cfg = load_config()
+        assert cfg.observability.langsmith_enabled is False
+
+    def test_env_langsmith_switch(self):
+        os.environ["LINGJI_LANGSMITH_ENABLED"] = "1"
+        os.environ["LINGJI_DECISION_TRACE_DIR"] = "/tmp/lingji-traces"
+        try:
+            cfg = load_config()
+            assert cfg.observability.langsmith_enabled is True
+            assert cfg.observability.decision_trace_dir == "/tmp/lingji-traces"
+        finally:
+            del os.environ["LINGJI_LANGSMITH_ENABLED"]
+            del os.environ["LINGJI_DECISION_TRACE_DIR"]
+
     def test_env_api_key(self):
         os.environ["DEEPSEEK_API_KEY"] = "sk-test-123"
         try:

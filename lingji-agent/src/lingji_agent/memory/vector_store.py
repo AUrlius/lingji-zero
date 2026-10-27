@@ -86,9 +86,12 @@ class LocalVectorStore:
         if not results or not results.get("documents") or not results["documents"][0]:
             return memories
 
+        id_rows = results.get("ids") or [[]]
+        id_row = id_rows[0] if id_rows else []
         for i, doc in enumerate(results["documents"][0]):
             distance = results["distances"][0][i] if results.get("distances") else 0.0
             memories.append({
+                "id": id_row[i] if i < len(id_row) else "",
                 "content": doc,
                 "metadata": results["metadatas"][0][i] if results.get("metadatas") else {},
                 "relevance_score": 1.0 - distance,

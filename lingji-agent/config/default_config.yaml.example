@@ -52,6 +52,9 @@ observability:
   metrics_host: 127.0.0.1
   metrics_port: 9091
   trace_log_enabled: true
+  # 唯一开关。打开后还要有环境变量 LANGSMITH_API_KEY；没有密钥时仍只写本地 Trace。
+  langsmith_enabled: false
+  decision_trace_dir: ~/.lingji/traces
 scheduler:
   # 值守机（青铜剑）：enabled=false，scheduler_agent_id 指向移动调度终端
   enabled: false

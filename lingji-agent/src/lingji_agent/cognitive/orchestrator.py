@@ -79,6 +79,17 @@ def filter_tool_args(fn, fn_args: dict[str, Any]) -> dict[str, Any]:
     return {k: v for k, v in fn_args.items() if k in allowed}
 
 
+def _hitl_agent_state(state: AgentState) -> dict[str, Any]:
+    """Checkpoint copy plus the decision trace id. Messages stay out of the trace."""
+    snapshot = dict(state)
+    from lingji_agent.observability.decision_trace import current_trace
+
+    trace = current_trace()
+    if trace is not None:
+        snapshot["_decision_trace_id"] = trace.trace_id
+    return snapshot
+
+
 def _secretary_blocks_execute_command(
     state: AgentState,
     fn_name: str,
@@ -171,6 +182,7 @@ async def _agent_think_impl(
     tool_calls = result.get("tool_calls", [])
     usage = result.get("usage", {})
     record_llm_usage(connector.model_name, usage)
+    _note_decision_tokens(usage)
 
     logger.info(
         "[agent_think] 响应: content_len=%d, tool_calls=%d, tokens=%s",
@@ -251,6 +263,9 @@ async def _tool_executor_impl(state: AgentState) -> AgentState:
             logger.warning("[tool_executor] %s", err)
             result_content = json.dumps({"error": err})
         elif _secretary_blocks_execute_command(state, fn_name, fn_args):
+            from lingji_agent.observability.decision_trace import note_tool_blocked
+
+            note_tool_blocked(permission=True, tool=fn_name)
             result_content = json.dumps({
                 "error": "调度秘书禁止用 execute_command 做跨机/运维。请改用 job_invoke 或 fleet_send_file。",
             }, ensure_ascii=False)
@@ -274,13 +289,16 @@ async def _tool_executor_impl(state: AgentState) -> AgentState:
                         fn_name, fn_args_str,
                     )
                     await _notify_activity(configurable, "waiting_hitl", fn_name)
+                    from lingji_agent.observability.decision_trace import note_human_step
+
+                    note_human_step()
                     if hitl_mgr:
                         hitl_mgr.record_interrupt(
                             task_id=tc_id,
                             description=description,
                             risk_level="critical",
                             thread_id=thread_id,
-                            agent_state=dict(state),
+                            agent_state=_hitl_agent_state(state),
                         )
                     decision = interrupt({
                         "task_id": tc_id,
@@ -312,11 +330,14 @@ async def _tool_executor_impl(state: AgentState) -> AgentState:
                         "[tool_executor] HITL 挂起(legacy): %s(%s)",
                         fn_name, fn_args_str,
                     )
+                    from lingji_agent.observability.decision_trace import note_human_step
+
+                    note_human_step()
                     decision = await hitl_mgr.request_approval(
                         task_id=f"{tc_id}",
                         description=f"执行 {fn_name}({fn_args_str})",
                         risk_level="critical",
-                        agent_state=dict(state),
+                        agent_state=_hitl_agent_state(state),
                         thread_id=thread_id or "",
                     )
                     if decision.value == "approved":
@@ -341,6 +362,9 @@ async def _tool_executor_impl(state: AgentState) -> AgentState:
                         "[tool_executor] 🔴 危险操作被 HITL 拦截: %s(%s)",
                         fn_name, fn_args_str,
                     )
+                    from lingji_agent.observability.decision_trace import note_tool_blocked
+
+                    note_tool_blocked(permission=True, tool=fn_name)
                     result_content = json.dumps({
                         "error": f"操作 '{fn_name}' 已被 HITL 安全策略拦截。"
                                  f"此操作需要审批才能执行。"
@@ -583,6 +607,9 @@ def trim_conversation_messages(
     non_system = [m for m in messages if m.get("role") != "system"]
     system = system_msgs[-1:] if system_msgs else []
     if len(non_system) > max_non_system:
+        from lingji_agent.observability.decision_trace import note_context_compressed
+
+        note_context_compressed()
         non_system = non_system[-max_non_system:]
     return system + non_system
 
@@ -686,6 +713,16 @@ async def _notify_activity(configurable: dict, phase: str, detail: str = "") -> 
             await result
     except Exception as exc:
         logger.debug("[activity] reporter failed phase=%s: %s", phase, exc)
+
+
+def _note_decision_tokens(usage: dict[str, Any]) -> None:
+    from lingji_agent.observability.decision_trace import note_tokens
+
+    total = int(usage.get("total_tokens") or 0)
+    if not total:
+        total = int(usage.get("prompt_tokens") or 0) + int(usage.get("completion_tokens") or 0)
+    if total:
+        note_tokens(total)
 
 
 def _error_state(state: AgentState, message: str) -> AgentState:

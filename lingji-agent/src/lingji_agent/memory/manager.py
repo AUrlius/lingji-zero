@@ -108,6 +108,9 @@ class MemoryManager:
         content: str,
         tool_output: str | None = None,
     ) -> None:
+        from lingji_agent.observability.decision_trace import note_memory
+
+        note_memory("kept")
         doc_id = str(uuid.uuid4())
         text = f"[{role.upper()}]: {content}"
         if tool_output:
@@ -190,6 +193,16 @@ class MemoryManager:
             for episode in episodes:
                 context_parts.append(f"- {episode['content']}")
             context_parts.append("</relevant_history>")
+
+        document_ids = [
+            str(item.get("id") or "")
+            for item in (*prefs, *episodes)
+            if item.get("id")
+        ]
+        if document_ids:
+            from lingji_agent.observability.decision_trace import note_retrieval_documents
+
+            note_retrieval_documents(document_ids)
 
         return "\n".join(context_parts)
 

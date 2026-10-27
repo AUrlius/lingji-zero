@@ -156,10 +156,14 @@ class SecurityGuardrail:
         combined = f"{user_input}\n{context}".strip()
         ops_transfer = _is_ops_file_transfer(user_input)
 
+        from lingji_agent.observability.decision_trace import note_injection_check
+
         # inj.* 只查用户输入。semantic 记忆 / 红队文档常含「ignore previous」样例，
         # 拼进 context 会误拦「请执行 uname -a」这类 HITL 题。
+        note_injection_check()
         hit = _inspect_text(self._inj_rules, user_input)
         if hit:
+            note_injection_check(hit.rule_id)
             return hit
 
         hit = _inspect_text(self._destruct_rules, combined)
