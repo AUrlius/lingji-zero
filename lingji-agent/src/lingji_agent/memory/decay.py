@@ -97,4 +97,7 @@ def prune_stale_memories(
 
     if to_delete:
         store.delete_by_ids("episodic", to_delete)
+        from lingji_agent.observability.decision_trace import note_memory
+
+        note_memory("dropped")
     return len(to_delete)

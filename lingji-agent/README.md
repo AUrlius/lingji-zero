@@ -71,6 +71,20 @@ python -m lingji_agent.main --stop && python -m lingji_agent.main
 
 启用时向量库在**后台预热**，不阻塞 Gateway 连接。首次运行可能下载 ONNX 嵌入模型（约 1–3 分钟），后续启动使用本地缓存。
 
+## 一次决策一条 Trace
+
+每次对话决策，或一次 playbook / coding 委派，写一条可回放的 Trace。记录这一次的成败、调用耗时、Token、跑了哪一项 Skill、工具有没有被权限或沙箱拦住、检索有没有交给生成、记忆是留下还是丢掉、上下文有没有压缩、注入检查、幻觉检查，以及有没有停下来等人。写出去的内容去掉密钥、账号和原文。
+
+本地文件在 `~/.lingji/traces/`（可用 `LINGJI_DECISION_TRACE_DIR` 改目录）。看最近一条：
+
+```bash
+python -m lingji_agent.observability.decision_trace
+```
+
+看指定的一条：`python -m lingji_agent.observability.decision_trace <trace_id>`。
+
+LangSmith 默认关。只在这一处打开：`observability.langsmith_enabled: true`，或环境变量 `LINGJI_LANGSMITH_ENABLED=1`。同时要有 `LANGSMITH_API_KEY`。没有密钥时仍只写本地，字段相同。
+
 ## 测试
 
 ```bash

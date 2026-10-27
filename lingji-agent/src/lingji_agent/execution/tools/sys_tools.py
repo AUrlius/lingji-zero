@@ -57,6 +57,9 @@ async def system_status() -> dict:
 async def execute_command_tool(command: str, cwd: str | None = None) -> dict:
     """在沙箱中执行命令（CRITICAL 级别，必须触发 HITL）"""
     if _blocks_gateway_redownload(command):
+        from lingji_agent.observability.decision_trace import note_tool_blocked
+
+        note_tool_blocked(permission=True, tool="execute_command")
         return {
             "error": "禁止用 curl/wget 从 Gateway 重下上传文件；文件已落盘，请用 move_file 整理",
         }
