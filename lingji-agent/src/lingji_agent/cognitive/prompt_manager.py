@@ -112,6 +112,9 @@ class PromptManager:
             )
 
         if retrieved_memory_context.strip():
+            from lingji_agent.observability.decision_trace import note_retrieval_passed
+
+            note_retrieval_passed()
             prompt += MEMORY_CONTEXT_SECTION.format(
                 retrieved_memory_context=retrieved_memory_context.strip(),
             )

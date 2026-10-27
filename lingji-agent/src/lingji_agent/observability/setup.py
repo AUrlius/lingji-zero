@@ -11,6 +11,9 @@ logger = logging.getLogger(__name__)
 
 
 def init_observability(config: ObservabilityConfig) -> None:
+    from lingji_agent.observability import decision_trace
+
+    decision_trace.configure(config)
     tracing.init_tracing(config)
     metrics.init_metrics(config)
     server.start_metrics_server(config)

@@ -42,6 +42,7 @@ class RecoveredHITLContext:
     description: str
     risk_level: str
     checkpoint_status: str
+    trace_id: str = ""
 
 
 class PendingRunLike(Protocol):
@@ -101,6 +102,14 @@ def build_recovered_context(
         elif role == "user":
             user_text = content
 
+    raw_trace = state.get("_decision_trace_id") if isinstance(state, dict) else ""
+    trace_id = ""
+    if isinstance(raw_trace, str) and raw_trace:
+        try:
+            trace_id = str(uuid.UUID(raw_trace))
+        except ValueError:
+            trace_id = ""
+
     thread_id = session_row.get("thread_id") or ""
     if ":" in thread_id:
         device_id = thread_id.split(":", 1)[0]
@@ -117,6 +126,7 @@ def build_recovered_context(
         description=session_row.get("description") or "",
         risk_level=session_row.get("risk_level") or "critical",
         checkpoint_status=session_row.get("checkpoint_status") or "",
+        trace_id=trace_id,
     )
 
 
@@ -137,6 +147,11 @@ def register_recovered_pending_run(
         system_prompt=ctx.system_prompt,
         run_started_at=run_started_at if run_started_at is not None else time.monotonic(),
     )
+    if ctx.trace_id:
+        try:
+            pending.trace_id = ctx.trace_id
+        except Exception:
+            setattr(pending, "trace_id", ctx.trace_id)
     pending_runs[ctx.task_id] = pending
     logger.info(
         "GAP-002 恢复 pending run: task=%s thread=%s resumable=1",

@@ -65,6 +65,9 @@ class ObservabilityConfig(BaseModel):
     metrics_host: str = "127.0.0.1"
     metrics_port: int = 9091
     trace_log_enabled: bool = True
+    # One switch for the LangSmith sink. Off keeps a local trace with the same fields.
+    langsmith_enabled: bool = False
+    decision_trace_dir: str = "~/.lingji/traces"
 
 
 class SchedulerConfig(BaseModel):
@@ -165,6 +168,12 @@ _ENV_MAP = {
         "metrics_enabled",
         lambda v: v.lower() in ("1", "true", "yes"),
     ),
+    "LINGJI_LANGSMITH_ENABLED": (
+        "observability",
+        "langsmith_enabled",
+        lambda v: v.lower() in ("1", "true", "yes"),
+    ),
+    "LINGJI_DECISION_TRACE_DIR": ("observability", "decision_trace_dir"),
 }
 
 
